@@ -134,7 +134,6 @@ def parse_excel_file(uploaded_file):
                 rows_data.append(row_vals)
         if len(rows_data) > 1:
             clean_prod = [r for r in rows_data[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
-            # Tarih kolonlarını Gün/Ay/Yıl formatına çevir
             formatted_prod = []
             for r in clean_prod:
                 r_copy = list(r)
@@ -240,78 +239,155 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Excel Okuma Hatası: {e}")
 
-# ANA TABLO
+# ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU
 rows = st.session_state.sheets.get(selected_parti, [])
 if rows:
-    headers = rows[0]
     prod_rows = rows[1:]
+    all_product_names = sorted(list(set([r[0] for sheet in st.session_state.sheets.values() for r in sheet[1:] if len(r)>0])))
 
-    st.markdown("""
-    **🎨 Durum Renk Anlamları:** 
-    ⚪ **Ekilmedi** | 🩶 **Karanlıkta** | 🟡 **Işığa Çıkmalı 💡** | 🟢 **Hasat Zamanı**
-    """)
+    col_f1, col_f2 = st.columns([2, 1])
+    with col_f1:
+        selected_filter_product = st.selectbox(
+            "🔍 Ürün Bazlı İnceleme (Tüm Partiler Genelinde):",
+            ["Tüm Tabloyu Göster (Aktif Parti)"] + all_product_names
+        )
 
     today = datetime.date.today()
-    table_data = []
-    tot_u, tot_s, tot_k = 0.0, 0.0, 0.0
 
-    for r in prod_rows:
-        u_name = r[0]
-        u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
-        s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
-        kalan = float(r[3]) if len(r)>3 and r[3] else 0.0
-        ekim_str = format_date_tr(r[4]) if len(r)>4 else ""
-        hasat_suresi = r[5] if len(r)>5 else "10"
-        hasat_str = format_date_tr(r[6]) if len(r)>6 else ""
-        karanlik_suresi = r[7] if len(r)>7 else "3"
-        isik_str = format_date_tr(r[8]) if len(r)>8 else ""
-        not_str = r[9] if len(r)>9 else ""
+    # EĞER BELİRLİ BİR ÜRÜN SEÇİLDİYSE (Örn: Amaranth)
+    if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
+        st.subheader(f"📊 '{selected_filter_product}' İçin Tüm Partilerin Üretim Geçmişi")
+        
+        product_history = []
+        tot_u, tot_s, tot_k = 0.0, 0.0, 0.0
 
-        tot_u += u_adet
-        tot_s += s_cikan
-        tot_k += kalan
+        for p_name, p_rows in st.session_state.sheets.items():
+            for r in p_rows[1:]:
+                if len(r) > 0 and r[0] == selected_filter_product:
+                    u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
+                    s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
+                    kalan = float(r[3]) if len(r)>3 and r[3] else 0.0
+                    ekim_str = format_date_tr(r[4]) if len(r)>4 else ""
+                    hasat_suresi = r[5] if len(r)>5 else "10"
+                    hasat_str = format_date_tr(r[6]) if len(r)>6 else ""
+                    karanlik_suresi = r[7] if len(r)>7 else "3"
+                    isik_str = format_date_tr(r[8]) if len(r)>8 else ""
+                    not_str = r[9] if len(r)>9 else ""
 
-        isik_dt = parse_tr_date(isik_str)
-        hasat_dt = parse_tr_date(hasat_str)
+                    tot_u += u_adet
+                    tot_s += s_cikan
+                    tot_k += kalan
 
-        durum_badge = "⚪ Ekilmedi"
-        if hasat_dt and hasat_dt <= today:
-            durum_badge = "🟢 HASAT ZAMANI!"
-        elif isik_dt and isik_dt <= today:
-            durum_badge = "🟡 IŞIĞA ÇIKMALI 💡"
-        elif ekim_str:
-            durum_badge = "🩶 KARANLIKTA"
+                    isik_dt = parse_tr_date(isik_str)
+                    hasat_dt = parse_tr_date(hasat_str)
+
+                    durum_badge = "⚪ Ekilmedi"
+                    if hasat_dt and hasat_dt <= today:
+                        durum_badge = "🟢 HASAT ZAMANI!"
+                    elif isik_dt and isik_dt <= today:
+                        durum_badge = "🟡 IŞIĞA ÇIKMALI 💡"
+                    elif ekim_str:
+                        durum_badge = "🩶 KARANLIKTA"
+
+                    product_history.append({
+                        "Parti Adı": p_name,
+                        "Durum": durum_badge,
+                        "Üretim Adeti": int(u_adet),
+                        "Stoktan Çıkan": int(s_cikan),
+                        "Kalan Ürün": int(kalan),
+                        "Ekim Günü": ekim_str,
+                        "Karanlıkta (gün)": karanlik_suresi,
+                        "Işığa Çıkış Tarihi": isik_str,
+                        "Hasat Süresi (gün)": hasat_suresi,
+                        "Hasat Tarihi": hasat_str,
+                        "Not": not_str
+                    })
+
+        if product_history:
+            # Toplam Özeti
+            product_history.append({
+                "Parti Adı": "📊 GENEL TOPLAM",
+                "Durum": "-",
+                "Üretim Adeti": int(tot_u),
+                "Stoktan Çıkan": int(tot_s),
+                "Kalan Ürün": int(tot_k),
+                "Ekim Günü": "-",
+                "Karanlıkta (gün)": "-",
+                "Işığa Çıkış Tarihi": "-",
+                "Hasat Süresi (gün)": "-",
+                "Hasat Tarihi": "-",
+                "Not": "-"
+            })
+            st.table(product_history)
+        else:
+            st.info("Bu ürün için henüz kayıtlı bir üretim verisi bulunamadı.")
+
+    # NORMAL TÜM PARTİ TABLOSU GÖRÜNÜMÜ
+    else:
+        st.markdown("""
+        **🎨 Durum Renk Anlamları:** 
+        ⚪ **Ekilmedi** | 🩶 **Karanlıkta** | 🟡 **Işığa Çıkmalı 💡** | 🟢 **Hasat Zamanı**
+        """)
+
+        table_data = []
+        tot_u, tot_s, tot_k = 0.0, 0.0, 0.0
+
+        for r in prod_rows:
+            u_name = r[0]
+            u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
+            s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
+            kalan = float(r[3]) if len(r)>3 and r[3] else 0.0
+            ekim_str = format_date_tr(r[4]) if len(r)>4 else ""
+            hasat_suresi = r[5] if len(r)>5 else "10"
+            hasat_str = format_date_tr(r[6]) if len(r)>6 else ""
+            karanlik_suresi = r[7] if len(r)>7 else "3"
+            isik_str = format_date_tr(r[8]) if len(r)>8 else ""
+            not_str = r[9] if len(r)>9 else ""
+
+            tot_u += u_adet
+            tot_s += s_cikan
+            tot_k += kalan
+
+            isik_dt = parse_tr_date(isik_str)
+            hasat_dt = parse_tr_date(hasat_str)
+
+            durum_badge = "⚪ Ekilmedi"
+            if hasat_dt and hasat_dt <= today:
+                durum_badge = "🟢 HASAT ZAMANI!"
+            elif isik_dt and isik_dt <= today:
+                durum_badge = "🟡 IŞIĞA ÇIKMALI 💡"
+            elif ekim_str:
+                durum_badge = "🩶 KARANLIKTA"
+
+            table_data.append({
+                "Durum": durum_badge,
+                "Ürün Adı": u_name,
+                "Üretim Adeti": int(u_adet),
+                "Stoktan Çıkan": int(s_cikan),
+                "Kalan Ürün": int(kalan),
+                "Ekim Günü": ekim_str,
+                "Karanlıkta (gün)": karanlik_suresi,
+                "Işığa Çıkış Tarihi": isik_str,
+                "Hasat Süresi (gün)": hasat_suresi,
+                "Hasat Tarihi": hasat_str,
+                "Not": not_str
+            })
 
         table_data.append({
-            "Durum": durum_badge,
-            "Ürün Adı": u_name,
-            "Üretim Adeti": int(u_adet),
-            "Stoktan Çıkan": int(s_cikan),
-            "Kalan Ürün": int(kalan),
-            "Ekim Günü": ekim_str,
-            "Karanlıkta (gün)": karanlik_suresi,
-            "Işığa Çıkış Tarihi": isik_str,
-            "Hasat Süresi (gün)": hasat_suresi,
-            "Hasat Tarihi": hasat_str,
-            "Not": not_str
+            "Durum": "📊 TOPLAM",
+            "Ürün Adı": "Toplam Üretim",
+            "Üretim Adeti": int(tot_u),
+            "Stoktan Çıkan": int(tot_s),
+            "Kalan Ürün": int(tot_k),
+            "Ekim Günü": "-",
+            "Karanlıkta (gün)": "-",
+            "Işığa Çıkış Tarihi": "-",
+            "Hasat Süresi (gün)": "-",
+            "Hasat Tarihi": "-",
+            "Not": "-"
         })
 
-    # Toplam Satırı
-    table_data.append({
-        "Durum": "📊 TOPLAM",
-        "Ürün Adı": "Toplam Üretim",
-        "Üretim Adeti": int(tot_u),
-        "Stoktan Çıkan": int(tot_s),
-        "Kalan Ürün": int(tot_k),
-        "Ekim Günü": "-",
-        "Karanlıkta (gün)": "-",
-        "Işığa Çıkış Tarihi": "-",
-        "Hasat Süresi (gün)": "-",
-        "Hasat Tarihi": "-",
-        "Not": "-"
-    })
-
-    st.table(table_data)
+        st.table(table_data)
 
     # HIZLI DÜZENLEME PANELİ
     st.markdown("---")
