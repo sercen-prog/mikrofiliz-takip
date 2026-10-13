@@ -214,6 +214,24 @@ def export_sheets_to_excel(sheets_data):
     buffer.seek(0)
     return buffer
 
+def reset_single_parti(parti_name):
+    """Sadece seçilen bir partinin verilerini sıfırlar"""
+    if parti_name in st.session_state.sheets:
+        rows = st.session_state.sheets[parti_name]
+        for r_idx in range(1, len(rows)):
+            r = rows[r_idx]
+            if len(r) > 0 and r[0] != "Toplam Üretim":
+                r[1] = "0"  # Üretim
+                r[2] = "0"  # Satılan
+                r[3] = "0"  # Fire
+                r[4] = "0"  # Kalan
+                r[5] = ""   # Müşteri
+                r[6] = ""   # Ekim Günü
+                r[8] = ""   # Hasat Tarihi
+                r[10] = ""  # Işığa Çıkış
+                r[11] = ""  # Not
+        save_data_to_sheets(st.session_state.sheets)
+
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
@@ -223,12 +241,10 @@ if "archived_partis" not in st.session_state:
 if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
-# Aktif ve Arşivdeki Partileri Ayrıştır
 all_parti_names = list(st.session_state.sheets.keys())
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
 if not active_parti_names:
-    # Eğer tüm partiler arşivdeyse veya hiç aktif parti yoksa
     first_sheet_rows = list(st.session_state.sheets.values())[0][1:]
     new_rows = [HEADERS]
     for r in first_sheet_rows:
@@ -245,8 +261,8 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
 st.title("🌱 Mikrofiliz Üretim, Satış ve Fire Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
-with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti)", expanded=False):
-    tab_prod, tab_cust, tab_arch, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "📦 Arşivlenmiş Partiler", "🧹 Veri Sıfırlama"])
+with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
+    tab_prod, tab_cust, tab_arch, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "📦 Arşivlenmiş Partiler", "🧹 Parti Sıfırlama"])
     
     # 1. ÜRÜN YÖNETİMİ TABI
     with tab_prod:
@@ -336,20 +352,18 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti)"
         else:
             st.info("Henüz arşive kaldırılmış bir parti bulunmuyor.")
 
-    # 4. SİSTEM & VERİ YÖNETİMİ TABI
+    # 4. PARTİ BAZLI SİFIRLAMA TABI
     with tab_sys:
-        st.markdown("#### 🧹 Veri ve Şablon Sıfırlama")
-        if st.button("🔄 Tüm Üretim ve Stok Verilerini Sıfırla (0 Yap)", use_container_width=True, type="primary"):
-            st.session_state.sheets = get_clean_empty_sheet_data()
-            st.session_state.archived_partis = []
-            st.session_state.active_parti = "Parti No.1"
-            save_data_to_sheets(st.session_state.sheets)
-            st.success("Tüm veriler başarıyla 0 yapıldı ve sıfırlandı!")
+        st.markdown("#### 🧹 Parti Bazlı Veri Sıfırlama")
+        target_reset_parti = st.selectbox("Sıfırlanacak Partiyi Seçin", all_parti_names, key="tab_reset_parti_select")
+        if st.button(f"🚨 '{target_reset_parti}' Verilerini Sıfırla (0 Yap)", use_container_width=True, type="primary"):
+            reset_single_parti(target_reset_parti)
+            st.success(f"'{target_reset_parti}' partisine ait tüm veriler sıfırlandı!")
             st.rerun()
 
 st.markdown("---")
 
-# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma & Excel
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Parti Sıfırlama & Excel
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -390,6 +404,11 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
+    if st.button(f"🔄 '{st.session_state.active_parti}' Partisini Sıfırla (0 Yap)", use_container_width=True):
+        reset_single_parti(st.session_state.active_parti)
+        st.success(f"'{st.session_state.active_parti}' verileri 0 yapıldı!")
+        st.rerun()
+
     if st.button(f"📦 '{st.session_state.active_parti}' Partisini Arşive Kaldır", use_container_width=True):
         if st.session_state.active_parti not in st.session_state.archived_partis:
             st.session_state.archived_partis.append(st.session_state.active_parti)
@@ -410,7 +429,7 @@ with st.sidebar:
         use_container_width=True
     )
 
-# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ (Sadece Aktif Partiler)
+# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ
 today = datetime.date.today()
 yesterday = today - datetime.timedelta(days=1)
 tomorrow = today + datetime.timedelta(days=1)
@@ -476,7 +495,7 @@ if dun_islem or bugun_islem or yarin_islem:
             
     st.markdown("---")
 
-# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ (Sadece Aktif Partiler)
+# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ
 with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
     col_s1, col_s2, col_s3 = st.columns([1, 1, 1.2])
     
@@ -542,7 +561,7 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
 
 st.markdown("---")
 
-# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ (Sadece Aktif Partiler)
+# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ
 with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu (Aktif Partiler)", expanded=False):
     report_list = []
     customer_sales = {}
