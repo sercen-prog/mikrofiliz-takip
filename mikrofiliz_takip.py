@@ -86,59 +86,82 @@ def get_gspread_client():
         raise ValueError("Google Service Account anahtarı Streamlit Secrets içinde bulunamadı!")
     return gspread.authorize(creds)
 
-def normalize_sheet_rows(rows):
+def repair_and_fix_rows(rows):
+    """Google Sheets verisindeki kolon kaymalarını akıllıca onarır"""
     if not rows or len(rows) < 1:
         return [HEADERS]
     
-    header = [str(c).strip() for c in rows[0]]
-    
-    # İndeks Haritası Oluştur
-    col_map = {}
-    for i, h in enumerate(header):
-        if "Ürün" in h and "Adı" in h: col_map["urun"] = i
-        elif "Üretim" in h: col_map["uretim"] = i
-        elif "Stoktan" in h or "Satılan" in h: col_map["satilan"] = i
-        elif "Çöpe" in h or "Fire" in h: col_map["fire"] = i
-        elif "Kalan" in h: col_map["kalan"] = i
-        elif "Müşteri" in h or "Yer" in h: col_map["musteri"] = i
-        elif "Ekim" in h: col_map["ekim"] = i
-        elif "Hasat Süresi" in h: col_map["hasat_suresi"] = i
-        elif "Hasat Tarihi" in h: col_map["hasat_tarihi"] = i
-        elif "Karanlık" in h: col_map["karanlik"] = i
-        elif "Işığa" in h or "İşığa" in h: col_map["isik"] = i
-        elif "Not" in h: col_map["not"] = i
-
-    normalized = [HEADERS]
+    fixed_rows = [HEADERS]
     for r in rows[1:]:
         if not r or str(r[0]).strip() == "Toplam Üretim":
             continue
         
-        def get_val(key):
-            idx = col_map.get(key, -1)
-            if idx != -1 and idx < len(r):
-                return str(r[idx]).strip()
-            return ""
-
-        u_name = get_val("urun") if get_val("urun") else (r[0] if len(r)>0 else "")
+        u_name = str(r[0]).strip()
         if not u_name: continue
 
-        u_adet = safe_int(get_val("uretim"))
-        s_cikan = safe_int(get_val("satilan"))
-        fire = safe_int(get_val("fire"))
+        u_adet = safe_int(r[1]) if len(r)>1 else 0
+        s_cikan = safe_int(r[2]) if len(r)>2 else 0
+        fire = safe_int(r[3]) if len(r)>3 else 0
         kalan = max(0, u_adet - s_cikan - fire)
-        musteri = get_val("musteri")
-        ekim_dt = format_date_tr(get_val("ekim"))
-        has_suresi = get_val("hasat_suresi") if get_val("hasat_suresi") else "10"
-        has_tarihi = format_date_tr(get_val("hasat_tarihi"))
-        kar_suresi = get_val("karanlik") if get_val("karanlik") else "3"
-        isik_tarihi = format_date_tr(get_val("isik"))
-        not_txt = get_val("not")
 
-        normalized.append([
+        # Müşteri ve Süre kontrolü
+        raw_col5 = str(r[5]).strip() if len(r)>5 else ""
+        raw_col7 = str(r[7]).strip() if len(r)>7 else ""
+        
+        musteri = ""
+        hasat_suresi = "10"
+        
+        if raw_col5.isdigit():
+            hasat_suresi = raw_col5
+        elif raw_col5:
+            musteri = raw_col5
+            
+        if raw_col7.isdigit():
+            hasat_suresi = raw_col7
+
+        # Ekim ve Hasat Tarihi Kontrolü
+        d1_str = str(r[6]).strip() if len(r)>6 else ""
+        d2_str = str(r[8]).strip() if len(r)>8 else ""
+        
+        dt1 = parse_tr_date(d1_str)
+        dt2 = parse_tr_date(d2_str)
+        
+        ekim_tarihi = ""
+        hasat_tarihi = ""
+        
+        if dt1 and dt2:
+            if dt1 <= dt2:
+                ekim_tarihi = format_date_tr(dt1)
+                hasat_tarihi = format_date_tr(dt2)
+            else:
+                ekim_tarihi = format_date_tr(dt2)
+                hasat_tarihi = format_date_tr(dt1)
+        elif dt1:
+            ekim_tarihi = format_date_tr(dt1)
+        elif dt2:
+            ekim_tarihi = format_date_tr(dt2)
+
+        # Otomatik Hasat Tarihi Hesaplama
+        if ekim_tarihi and not hasat_tarihi:
+            dt_ekim = parse_tr_date(ekim_tarihi)
+            if dt_ekim:
+                hasat_tarihi = format_date_tr(dt_ekim + datetime.timedelta(days=safe_int(hasat_suresi)))
+
+        kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip() else "3"
+        isik_tarihi = str(r[10]).strip() if len(r)>10 else ""
+        
+        if ekim_tarihi and not isik_tarihi:
+            dt_ekim = parse_tr_date(ekim_tarihi)
+            if dt_ekim:
+                isik_tarihi = format_date_tr(dt_ekim + datetime.timedelta(days=safe_int(kar_suresi)))
+
+        not_txt = str(r[11]).strip() if len(r)>11 else ""
+
+        fixed_rows.append([
             u_name, str(u_adet), str(s_cikan), str(fire), str(kalan),
-            musteri, ekim_dt, str(has_suresi), has_tarihi, str(kar_suresi), isik_tarihi, not_txt
+            musteri, ekim_tarihi, str(hasat_suresi), hasat_tarihi, str(kar_suresi), isik_tarihi, not_txt
         ])
-    return normalized
+    return fixed_rows
 
 def load_data_from_sheets():
     try:
@@ -148,7 +171,7 @@ def load_data_from_sheets():
         for ws in sh.worksheets():
             rows = ws.get_all_values()
             if len(rows) > 1:
-                clean_rows = normalize_sheet_rows(rows)
+                clean_rows = repair_and_fix_rows(rows)
                 if len(clean_rows) > 1:
                     sheets[ws.title] = clean_rows
         if sheets:
@@ -203,7 +226,7 @@ def parse_excel_file(uploaded_file):
             if any(row_vals):
                 rows_data.append(row_vals)
         if len(rows_data) > 1:
-            sheets[s_name] = normalize_sheet_rows(rows_data)
+            sheets[s_name] = repair_and_fix_rows(rows_data)
     return sheets
 
 def export_sheets_to_excel(sheets_data):
@@ -503,18 +526,12 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    st.header("🧹 Çöp (Fire) Sıfırlama")
-    if st.button("🗑️ Çöpe Atılan (Fire) Verileri 0 Yap", use_container_width=True):
-        for p_key, p_val in st.session_state.sheets.items():
-            for r_idx in range(1, len(p_val)):
-                r = p_val[r_idx]
-                if len(r) > 4:
-                    u_val = safe_int(r[1])
-                    satilan_val = safe_int(r[2])
-                    r[3] = "0" # Fire 0 yapılır
-                    r[4] = str(max(0, u_val - satilan_val)) # Kalan tekrar hesaplanır
+    st.header("🛠️ Tablo & Veri Onarma")
+    if st.button("🔧 Tablo Yapısını Onar ve Temizle", use_container_width=True):
+        for p_key in list(st.session_state.sheets.keys()):
+            st.session_state.sheets[p_key] = repair_and_fix_rows(st.session_state.sheets[p_key])
         save_data_to_sheets(st.session_state.sheets)
-        st.success("Tüm çöpe atılan (fire) verileri 0 yapıldı ve kalan stoklar güncellendi!")
+        st.success("Google Sheets tablonuzdaki tüm tarih kaymaları ve müşteri kolon hataları başarıyla düzeltildi!")
         st.rerun()
 
     st.markdown("---")
