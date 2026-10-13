@@ -1,0 +1,23 @@
+{
+    "uretimdeki_tepsiler": [
+        {
+            "id": 1,
+            "urun": "Amaranth Mikrofilizi",
+            "adet": 5,
+            "ekim_tarihi": "2026-10-13",
+            "hasat_tarihi": "2026-10-23",
+            "asama": "Çimlenmede",
+            "durum": "Üretimde"
+        },
+        {
+            "id": 2,
+            "urun": "Amaranth Mikrofilizi",
+            "adet": 5,
+            "ekim_tarihi": "2026-10-13",
+            "hasat_tarihi": "2026-10-23",
+            "asama": "Çimlenmede",
+            "durum": "Üretimde"
+        }
+    ],
+    "stok_miktarlari": {}
+}
