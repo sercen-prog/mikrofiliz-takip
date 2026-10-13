@@ -4,6 +4,7 @@ import io
 import openpyxl
 import streamlit as st
 import gspread
+import pandas as pd
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
@@ -254,6 +255,46 @@ if dun_islem or bugun_islem or yarin_islem:
             st.info(f"🔵 **YARIN ({str_tomorrow}):**\nPlanlı işlem yok.")
             
     st.markdown("---")
+
+# 📊 VERİMLİLİK VE STOK RAPORLAMA MODÜLÜ
+with st.expander("📊 Üretim & Stok Analiz Raporu (Tüm Partiler)", expanded=False):
+    report_list = []
+    tot_global_u, tot_global_s, tot_global_k = 0, 0, 0
+    for p_name, p_rows in st.session_state.sheets.items():
+        for r in p_rows[1:]:
+            if len(r) > 0 and r[0] != "Toplam Üretim":
+                u_name = r[0]
+                u_adet = int(float(r[1])) if len(r)>1 and r[1] else 0
+                s_cikan = int(float(r[2])) if len(r)>2 and r[2] else 0
+                kalan = int(float(r[3])) if len(r)>3 and r[3] else 0
+                tot_global_u += u_adet
+                tot_global_s += s_cikan
+                tot_global_k += kalan
+                if u_adet > 0 or s_cikan > 0 or kalan > 0:
+                    report_list.append({
+                        "Parti": p_name,
+                        "Ürün": u_name,
+                        "Üretim": u_adet,
+                        "Çıkan": s_cikan,
+                        "Kalan": kalan
+                    })
+
+    # Metrik Kartları
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🌱 Toplam Üretim Adeti", f"{tot_global_u} Adet")
+    m2.metric("📦 Stoktan Çıkan / Satılan", f"{tot_global_s} Adet")
+    m3.metric("🛒 Depodaki Kalan Ürün", f"{tot_global_k} Adet")
+
+    if report_list:
+        df_report = pd.DataFrame(report_list)
+        df_grouped = df_report.groupby("Ürün")[["Üretim", "Çıkan", "Kalan"]].sum().reset_index()
+        
+        st.markdown("#### 📈 Ürün Bazlı Toplam Üretim ve Stok Dağılımı")
+        st.bar_chart(df_grouped.set_index("Ürün"))
+    else:
+        st.info("Henüz grafik oluşturacak üretim verisi girilmedi.")
+
+st.markdown("---")
 
 # YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
 with st.sidebar:
