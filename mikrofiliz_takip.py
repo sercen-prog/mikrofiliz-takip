@@ -363,7 +363,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
 
 st.markdown("---")
 
-# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Parti Sıfırlama & Excel
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma & Excel
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -404,10 +404,6 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button(f"🔄 '{st.session_state.active_parti}' Partisini Sıfırla (0 Yap)", use_container_width=True):
-        reset_single_parti(st.session_state.active_parti)
-        st.success(f"'{st.session_state.active_parti}' verileri 0 yapıldı!")
-        st.rerun()
 
     if st.button(f"📦 '{st.session_state.active_parti}' Partisini Arşive Kaldır", use_container_width=True):
         if st.session_state.active_parti not in st.session_state.archived_partis:
