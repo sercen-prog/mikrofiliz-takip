@@ -59,6 +59,15 @@ def parse_tr_date(dt_str):
     except: return None
     return None
 
+def format_date_tr(dt_val):
+    if not dt_val: return ""
+    if isinstance(dt_val, (datetime.date, datetime.datetime)):
+        return dt_val.strftime("%d.%m.%Y")
+    parsed = parse_tr_date(dt_val)
+    if parsed:
+        return parsed.strftime("%d.%m.%Y")
+    return str(dt_val)
+
 def load_data_from_sheets():
     try:
         gc = get_gspread_client()
@@ -125,15 +134,56 @@ def parse_excel_file(uploaded_file):
                 rows_data.append(row_vals)
         if len(rows_data) > 1:
             clean_prod = [r for r in rows_data[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
-            sheets[s_name] = [rows_data[0]] + clean_prod
+            # Tarih kolonlarını Gün/Ay/Yıl formatına çevir
+            formatted_prod = []
+            for r in clean_prod:
+                r_copy = list(r)
+                if len(r_copy) > 4: r_copy[4] = format_date_tr(r_copy[4])
+                if len(r_copy) > 6: r_copy[6] = format_date_tr(r_copy[6])
+                if len(r_copy) > 8: r_copy[8] = format_date_tr(r_copy[8])
+                formatted_prod.append(r_copy)
+            sheets[s_name] = [rows_data[0]] + formatted_prod
     return sheets
+
+def export_sheets_to_excel(sheets_data):
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    
+    for s_name, rows in sheets_data.items():
+        ws = wb.create_sheet(title=s_name)
+        data_rows = rows[1:]
+        tot_u, tot_s, tot_k = 0.0, 0.0, 0.0
+        for r in data_rows:
+            try: tot_u += float(r[1]) if len(r)>1 and r[1] else 0.0
+            except: pass
+            try: tot_s += float(r[2]) if len(r)>2 and r[2] else 0.0
+            except: pass
+            try: tot_k += float(r[3]) if len(r)>3 and r[3] else 0.0
+            except: pass
+        
+        tot_row = ["Toplam Üretim", str(int(tot_u)), str(int(tot_s)), str(int(tot_k))] + [""] * (len(rows[0]) - 4)
+        full_rows = [rows[0]] + data_rows + [tot_row]
+
+        for r_idx, r_vals in enumerate(full_rows, 1):
+            for c_idx, val in enumerate(r_vals, 1):
+                val_str = str(val).replace("💡", "").strip()
+                try:
+                    num_v = float(val_str)
+                    ws.cell(row=r_idx, column=c_idx, value=int(num_v) if num_v.is_integer() else num_v)
+                except:
+                    ws.cell(row=r_idx, column=c_idx, value=val_str)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
-# YAN MENÜ: Parti Yönetimi ve Excel İçe Aktarma
+# YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     parti_names = list(st.session_state.sheets.keys())
@@ -161,6 +211,17 @@ with st.sidebar:
                 del st.session_state.sheets[selected_parti]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
+
+    st.markdown("---")
+    st.header("📥 Excel Olarak İndir")
+    excel_buffer = export_sheets_to_excel(st.session_state.sheets)
+    st.download_button(
+        label="📊 Güncel Verileri Excel Olarak İndir",
+        data=excel_buffer,
+        file_name=f"Mikrofiliz_Uretim_Takip_{datetime.date.today().strftime('%d_%m_%Y')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
 
     st.markdown("---")
     st.header("📤 Excel İçe Aktar")
@@ -199,11 +260,11 @@ if rows:
         u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
         s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
         kalan = float(r[3]) if len(r)>3 and r[3] else 0.0
-        ekim_str = r[4] if len(r)>4 else ""
+        ekim_str = format_date_tr(r[4]) if len(r)>4 else ""
         hasat_suresi = r[5] if len(r)>5 else "10"
-        hasat_str = r[6] if len(r)>6 else ""
+        hasat_str = format_date_tr(r[6]) if len(r)>6 else ""
         karanlik_suresi = r[7] if len(r)>7 else "3"
-        isik_str = r[8] if len(r)>8 else ""
+        isik_str = format_date_tr(r[8]) if len(r)>8 else ""
         not_str = r[9] if len(r)>9 else ""
 
         tot_u += u_adet
@@ -266,7 +327,7 @@ if rows:
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            e_ekim = st.date_input("Ekim Tarihi", parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today())
+            e_ekim = st.date_input("Ekim Tarihi (Gün/Ay/Yıl)", parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today(), format="DD.MM.YYYY")
             e_u_adet = st.number_input("Üretim Adeti", min_value=0, value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0)
         with c2:
             e_kar = st.number_input("Karanlıkta (gün)", min_value=1, value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 3)
