@@ -180,18 +180,26 @@ def export_sheets_to_excel(sheets_data):
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
+parti_names = list(st.session_state.sheets.keys())
+
+if "active_parti" not in st.session_state or st.session_state.active_parti not in parti_names:
+    st.session_state.active_parti = parti_names[0]
+
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
 # YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
-    parti_names = list(st.session_state.sheets.keys())
     
-    # Session state ile seçili partiyi kontrol et
-    if "selected_parti" not in st.session_state or st.session_state.selected_parti not in parti_names:
-        st.session_state.selected_parti = parti_names[0]
-
-    selected_parti = st.selectbox("Aktif Parti Seçin", parti_names, key="selected_parti")
+    selected_sidebar_parti = st.selectbox(
+        "Aktif Parti Seçin", 
+        parti_names, 
+        index=parti_names.index(st.session_state.active_parti),
+        key="sb_parti_select"
+    )
+    if selected_sidebar_parti != st.session_state.active_parti:
+        st.session_state.active_parti = selected_sidebar_parti
+        st.rerun()
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
@@ -206,15 +214,15 @@ with st.sidebar:
                 tmpl = [r[0], "0", "0", "0", "", r[5] if len(r)>5 else "10", "", r[7] if len(r)>7 else "3", "", ""]
                 new_rows.append(tmpl)
             st.session_state.sheets[new_name] = new_rows
-            st.session_state.selected_parti = new_name
+            st.session_state.active_parti = new_name
             save_data_to_sheets(st.session_state.sheets)
             st.rerun()
 
     with col_p2:
         if len(parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
-                del st.session_state.sheets[selected_parti]
-                st.session_state.selected_parti = list(st.session_state.sheets.keys())[0]
+                del st.session_state.sheets[st.session_state.active_parti]
+                st.session_state.active_parti = list(st.session_state.sheets.keys())[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
 
@@ -238,7 +246,7 @@ with st.sidebar:
                 parsed_sheets = parse_excel_file(uploaded_excel)
                 if parsed_sheets:
                     st.session_state.sheets = parsed_sheets
-                    st.session_state.selected_parti = list(parsed_sheets.keys())[0]
+                    st.session_state.active_parti = list(parsed_sheets.keys())[0]
                     save_data_to_sheets(parsed_sheets)
                     st.success("Excel başarıyla okundu ve Google Sheets veritabanına aktarıldı!")
                     st.rerun()
@@ -248,7 +256,9 @@ with st.sidebar:
                 st.error(f"Excel Okuma Hatası: {e}")
 
 # ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU
+selected_parti = st.session_state.active_parti
 rows = st.session_state.sheets.get(selected_parti, [])
+
 if rows:
     prod_rows = rows[1:]
     all_product_names = sorted(list(set([r[0] for sheet in st.session_state.sheets.values() for r in sheet[1:] if len(r)>0])))
@@ -404,15 +414,14 @@ if rows:
     col_hp1, col_hp2 = st.columns([1, 2])
     
     with col_hp1:
-        # Doğrudan Hızlı Panilden Parti Seçebilme Alanı
         target_parti = st.selectbox(
             "📂 İşlem Yapılacak Parti",
             parti_names,
-            index=parti_names.index(selected_parti) if selected_parti in parti_names else 0,
+            index=parti_names.index(selected_parti),
             key="quick_parti_select"
         )
-        if target_parti != selected_parti:
-            st.session_state.selected_parti = target_parti
+        if target_parti != st.session_state.active_parti:
+            st.session_state.active_parti = target_parti
             st.rerun()
 
     target_rows = st.session_state.sheets.get(target_parti, [])[1:]
