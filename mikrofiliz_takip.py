@@ -28,6 +28,14 @@ HEADERS = [
     "Hasat Tarihi", "Karanlıkta (gün)", "Işığa Çıkış Tarihi", "Not"
 ]
 
+def safe_int(val):
+    if not val: return 0
+    try:
+        val_str = str(val).replace("💡", "").strip()
+        return int(float(val_str))
+    except:
+        return 0
+
 def get_default_sheet_data():
     rows = [HEADERS]
     for p in DEFAULT_PRODUCTS:
@@ -107,18 +115,14 @@ def save_data_to_sheets(sheets_data):
                 ws = sh.add_worksheet(title=s_name, rows="100", cols="20")
             
             data_rows = rows[1:]
-            tot_u, tot_s, tot_f, tot_k = 0.0, 0.0, 0.0, 0.0
+            tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
             for r in data_rows:
-                try: tot_u += float(r[1]) if len(r)>1 and r[1] else 0.0
-                except: pass
-                try: tot_s += float(r[2]) if len(r)>2 and r[2] else 0.0
-                except: pass
-                try: tot_f += float(r[3]) if len(r)>3 and r[3] else 0.0
-                except: pass
-                try: tot_k += float(r[4]) if len(r)>4 and r[4] else 0.0
-                except: pass
+                tot_u += safe_int(r[1]) if len(r)>1 else 0
+                tot_s += safe_int(r[2]) if len(r)>2 else 0
+                tot_f += safe_int(r[3]) if len(r)>3 else 0
+                tot_k += safe_int(r[4]) if len(r)>4 else 0
             
-            tot_row = ["Toplam Üretim", str(int(tot_u)), str(int(tot_s)), str(int(tot_f)), str(int(tot_k))] + [""] * (len(HEADERS) - 5)
+            tot_row = ["Toplam Üretim", str(tot_u), str(tot_s), str(tot_f), str(tot_k)] + [""] * (len(HEADERS) - 5)
             full_rows = [HEADERS] + data_rows + [tot_row]
             ws.update("A1", full_rows)
             
@@ -159,18 +163,14 @@ def export_sheets_to_excel(sheets_data):
     for s_name, rows in sheets_data.items():
         ws = wb.create_sheet(title=s_name)
         data_rows = rows[1:]
-        tot_u, tot_s, tot_f, tot_k = 0.0, 0.0, 0.0, 0.0
+        tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
         for r in data_rows:
-            try: tot_u += float(r[1]) if len(r)>1 and r[1] else 0.0
-            except: pass
-            try: tot_s += float(r[2]) if len(r)>2 and r[2] else 0.0
-            except: pass
-            try: tot_f += float(r[3]) if len(r)>3 and r[3] else 0.0
-            except: pass
-            try: tot_k += float(r[4]) if len(r)>4 and r[4] else 0.0
-            except: pass
+            tot_u += safe_int(r[1]) if len(r)>1 else 0
+            tot_s += safe_int(r[2]) if len(r)>2 else 0
+            tot_f += safe_int(r[3]) if len(r)>3 else 0
+            tot_k += safe_int(r[4]) if len(r)>4 else 0
         
-        tot_row = ["Toplam Üretim", str(int(tot_u)), str(int(tot_s)), str(int(tot_f)), str(int(tot_k))] + [""] * (len(HEADERS) - 5)
+        tot_row = ["Toplam Üretim", str(tot_u), str(tot_s), str(tot_f), str(tot_k)] + [""] * (len(HEADERS) - 5)
         full_rows = [HEADERS] + data_rows + [tot_row]
 
         for r_idx, r_vals in enumerate(full_rows, 1):
@@ -214,7 +214,7 @@ for p_name, p_rows in st.session_state.sheets.items():
     for r in p_rows[1:]:
         if len(r) > 0:
             u_name = r[0]
-            u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
+            u_adet = safe_int(r[1]) if len(r)>1 else 0
             ekim_str = r[6] if len(r)>6 else ""
             hasat_str = r[8] if len(r)>8 else ""
             isik_str = r[10] if len(r)>10 else ""
@@ -224,19 +224,19 @@ for p_name, p_rows in st.session_state.sheets.items():
                 hasat_dt = parse_tr_date(hasat_str)
 
                 if hasat_dt == yesterday:
-                    dun_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilmeliydi")
+                    dun_islem.append(f"✂️ **{u_name}** ({p_name}) - {u_adet} Adet Hasat Edilmeliydi")
                 elif isik_dt == yesterday:
-                    dun_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılmalıydı")
+                    dun_islem.append(f"💡 **{u_name}** ({p_name}) - {u_adet} Adet Işığa Çıkarılmalıydı")
 
                 if hasat_dt == today:
-                    bugun_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilecek")
+                    bugun_islem.append(f"✂️ **{u_name}** ({p_name}) - {u_adet} Adet Hasat Edilecek")
                 elif isik_dt == today:
-                    bugun_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılacak")
+                    bugun_islem.append(f"💡 **{u_name}** ({p_name}) - {u_adet} Adet Işığa Çıkarılacak")
 
                 if hasat_dt == tomorrow:
-                    yarin_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilecek")
+                    yarin_islem.append(f"✂️ **{u_name}** ({p_name}) - {u_adet} Adet Hasat Edilecek")
                 elif isik_dt == tomorrow:
-                    yarin_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılacak")
+                    yarin_islem.append(f"💡 **{u_name}** ({p_name}) - {u_adet} Adet Işığa Çıkarılacak")
 
 if dun_islem or bugun_islem or yarin_islem:
     st.markdown("### 🔔 Görev & Takip Paneli")
@@ -272,10 +272,10 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
         for r in p_rows[1:]:
             if len(r) > 0 and r[0] != "Toplam Üretim":
                 u_name = r[0]
-                u_adet = int(float(r[1])) if len(r)>1 and r[1] else 0
-                s_cikan = int(float(r[2])) if len(r)>2 and r[2] else 0
-                fire = int(float(r[3])) if len(r)>3 and r[3] else 0
-                kalan = int(float(r[4])) if len(r)>4 and r[4] else 0
+                u_adet = safe_int(r[1]) if len(r)>1 else 0
+                s_cikan = safe_int(r[2]) if len(r)>2 else 0
+                fire = safe_int(r[3]) if len(r)>3 else 0
+                kalan = safe_int(r[4]) if len(r)>4 else 0
                 musteri = r[5] if len(r)>5 else ""
 
                 tot_global_u += u_adet
@@ -296,7 +296,6 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                 if musteri and s_cikan > 0:
                     customer_sales[musteri] = customer_sales.get(musteri, 0) + s_cikan
 
-    # 4 Temel Metrik Kartı
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🌱 Toplam Üretim", f"{tot_global_u} Adet")
     m2.metric("🛍️ Satılan / Çıkan", f"{tot_global_s} Adet")
@@ -407,20 +406,19 @@ if rows:
             ["Tüm Tabloyu Göster (Aktif Parti)"] + all_product_names
         )
 
-    # EĞER BELİRLİ BİR ÜRÜN SEÇİLDİYSE
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
         st.subheader(f"📊 '{selected_filter_product}' İçin Tüm Partilerin Üretim ve Satış Geçmişi")
         
         product_history = []
-        tot_u, tot_s, tot_f, tot_k = 0.0, 0.0, 0.0, 0.0
+        tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
 
         for p_name, p_rows in st.session_state.sheets.items():
             for r in p_rows[1:]:
                 if len(r) > 0 and r[0] == selected_filter_product:
-                    u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
-                    s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
-                    fire = float(r[3]) if len(r)>3 and r[3] else 0.0
-                    kalan = float(r[4]) if len(r)>4 and r[4] else 0.0
+                    u_adet = safe_int(r[1]) if len(r)>1 else 0
+                    s_cikan = safe_int(r[2]) if len(r)>2 else 0
+                    fire = safe_int(r[3]) if len(r)>3 else 0
+                    kalan = safe_int(r[4]) if len(r)>4 else 0
                     musteri = r[5] if len(r)>5 else ""
                     ekim_str = format_date_tr(r[6]) if len(r)>6 else ""
                     hasat_suresi = r[7] if len(r)>7 else "10"
@@ -448,10 +446,10 @@ if rows:
                     product_history.append({
                         "Parti Adı": p_name,
                         "Durum": durum_badge,
-                        "Üretim Adeti": int(u_adet),
-                        "Satılan": int(s_cikan),
-                        "Çöpe Atılan (Fire)": int(fire),
-                        "Kalan Ürün": int(kalan),
+                        "Üretim Adeti": u_adet,
+                        "Satılan": s_cikan,
+                        "Çöpe Atılan (Fire)": fire,
+                        "Kalan Ürün": kalan,
                         "Satış Yapılan Yer / Müşteri": musteri,
                         "Ekim Günü": ekim_str,
                         "Hasat Tarihi": hasat_str,
@@ -462,10 +460,10 @@ if rows:
             product_history.append({
                 "Parti Adı": "📊 GENEL TOPLAM",
                 "Durum": "-",
-                "Üretim Adeti": int(tot_u),
-                "Satılan": int(tot_s),
-                "Çöpe Atılan (Fire)": int(tot_f),
-                "Kalan Ürün": int(tot_k),
+                "Üretim Adeti": tot_u,
+                "Satılan": tot_s,
+                "Çöpe Atılan (Fire)": tot_f,
+                "Kalan Ürün": tot_k,
                 "Satış Yapılan Yer / Müşteri": "-",
                 "Ekim Günü": "-",
                 "Hasat Tarihi": "-",
@@ -475,7 +473,6 @@ if rows:
         else:
             st.info("Bu ürün için henüz kayıtlı bir üretim verisi bulunamadı.")
 
-    # NORMAL TÜM PARTİ TABLOSU GÖRÜNÜMÜ
     else:
         st.markdown(f"### 📋 {selected_parti} Üretim Tablosu")
         st.markdown("""
@@ -484,14 +481,14 @@ if rows:
         """)
 
         table_data = []
-        tot_u, tot_s, tot_f, tot_k = 0.0, 0.0, 0.0, 0.0
+        tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
 
         for r in prod_rows:
             u_name = r[0]
-            u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
-            s_cikan = float(r[2]) if len(r)>2 and r[2] else 0.0
-            fire = float(r[3]) if len(r)>3 and r[3] else 0.0
-            kalan = float(r[4]) if len(r)>4 and r[4] else 0.0
+            u_adet = safe_int(r[1]) if len(r)>1 else 0
+            s_cikan = safe_int(r[2]) if len(r)>2 else 0
+            fire = safe_int(r[3]) if len(r)>3 else 0
+            kalan = safe_int(r[4]) if len(r)>4 else 0
             musteri = r[5] if len(r)>5 else ""
             ekim_str = format_date_tr(r[6]) if len(r)>6 else ""
             hasat_suresi = r[7] if len(r)>7 else "10"
@@ -519,10 +516,10 @@ if rows:
             table_data.append({
                 "Durum": durum_badge,
                 "Ürün Adı": u_name,
-                "Üretim Adeti": int(u_adet),
-                "Satılan": int(s_cikan),
-                "Çöpe Atılan (Fire)": int(fire),
-                "Kalan Ürün": int(kalan),
+                "Üretim Adeti": u_adet,
+                "Satılan": s_cikan,
+                "Çöpe Atılan (Fire)": fire,
+                "Kalan Ürün": kalan,
                 "Satış Yapılan Yer / Müşteri": musteri,
                 "Ekim Günü": ekim_str,
                 "Karanlıkta (gün)": karanlik_suresi,
@@ -535,10 +532,10 @@ if rows:
         table_data.append({
             "Durum": "📊 TOPLAM",
             "Ürün Adı": "Toplam Üretim",
-            "Üretim Adeti": int(tot_u),
-            "Satılan": int(tot_s),
-            "Çöpe Atılan (Fire)": int(tot_f),
-            "Kalan Ürün": int(tot_k),
+            "Üretim Adeti": tot_u,
+            "Satılan": tot_s,
+            "Çöpe Atılan (Fire)": tot_f,
+            "Kalan Ürün": tot_k,
             "Satış Yapılan Yer / Müşteri": "-",
             "Ekim Günü": "-",
             "Karanlıkta (gün)": "-",
@@ -584,33 +581,33 @@ if rows:
             e_u_adet = st.number_input(
                 "Üretim Adeti", 
                 min_value=0, 
-                value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0,
+                value=safe_int(curr_r[1]) if len(curr_r)>1 else 0,
                 key=f"input_u_adet_{target_parti}_{selected_urun}"
             )
         with c2:
             e_s_cikan = st.number_input(
                 "Satılan Adet", 
                 min_value=0, 
-                value=int(float(curr_r[2])) if len(curr_r)>2 and curr_r[2] else 0,
+                value=safe_int(curr_r[2]) if len(curr_r)>2 else 0,
                 key=f"input_s_cikan_{target_parti}_{selected_urun}"
             )
             e_fire = st.number_input(
                 "Çöpe Atılan (Fire)", 
                 min_value=0, 
-                value=int(float(curr_r[3])) if len(curr_r)>3 and curr_r[3] else 0,
+                value=safe_int(curr_r[3]) if len(curr_r)>3 else 0,
                 key=f"input_fire_{target_parti}_{selected_urun}"
             )
         with c3:
             e_kar = st.number_input(
                 "Karanlıkta (gün)", 
                 min_value=1, 
-                value=int(float(curr_r[9])) if len(curr_r)>9 and curr_r[9] else 3,
+                value=safe_int(curr_r[9]) if len(curr_r)>9 and curr_r[9] != "" else 3,
                 key=f"input_kar_{target_parti}_{selected_urun}"
             )
             e_has = st.number_input(
                 "Hasat Süresi (gün)", 
                 min_value=1, 
-                value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 10,
+                value=safe_int(curr_r[7]) if len(curr_r)>7 and curr_r[7] != "" else 10,
                 key=f"input_has_{target_parti}_{selected_urun}"
             )
         with c4:
