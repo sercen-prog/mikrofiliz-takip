@@ -8,18 +8,22 @@ import pandas as pd
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
-    page_title="🌱 Mikrofiliz Üretim ve Stok Takip",
+    page_title="🌱 Mikrofiliz Üretim, Satış ve Fire Takip",
     page_icon="🌱",
     layout="wide"
 )
 
-# Varsayılan Ürün Listesi ve Şablon
+# Varsayılan Ürün ve Müşteri Listeleri
 DEFAULT_PRODUCTS = [
     "Amaranth Mikrofilizi", "Bezelye Mikrofilizi", "İtalyan Fesleğen Mikrofilizi",
     "Havuç Mikrofilizi", "Kişniş Mikrofilizi", "Mor Reyhan Mikrofilizi",
     "Mor Lahana Mikrofilizi", "Pembe Turp Mikrofilizi", "Mor Turp Mikrofilizi",
     "Roka Mikrofilizi", "Brokoli Mikrofilizi", "Hardal (Mizuna) Mikrofilizi",
     "Beyaz Turp Mikrofilizi", "Thai Fesleğen Mikrofilizi"
+]
+
+DEFAULT_CUSTOMERS = [
+    "Le Meridyen", "Damlıca Çiftliği", "The Crepe Escape", "Manca", "Mandarin"
 ]
 
 HEADERS = [
@@ -190,6 +194,9 @@ def export_sheets_to_excel(sheets_data):
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
+if "custom_customers" not in st.session_state:
+    st.session_state.custom_customers = []
+
 parti_names = list(st.session_state.sheets.keys())
 
 if "active_parti" not in st.session_state or st.session_state.active_parti not in parti_names:
@@ -262,6 +269,85 @@ if dun_islem or bugun_islem or yarin_islem:
             
     st.markdown("---")
 
+# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ (EN ÜST BÖLÜM)
+with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
+    col_s1, col_s2, col_s3 = st.columns([1, 1, 1.2])
+    
+    with col_s1:
+        s_parti = st.selectbox("📂 Satış Yapılacak Parti", parti_names, key="sales_parti_select")
+        
+    s_rows = st.session_state.sheets.get(s_parti, [])[1:]
+    s_prod_names = [r[0] for r in s_rows if len(r) > 0 and r[0] != "Toplam Üretim"]
+    
+    with col_s2:
+        s_urun = st.selectbox("🌱 Satılacak Ürün", s_prod_names, key="sales_urun_select")
+        
+    s_idx = next((i for i, r in enumerate(s_rows) if r[0] == s_urun), None)
+    
+    if s_idx is not None:
+        curr_s_row = s_rows[s_idx]
+        u_miktari = safe_int(curr_s_row[1]) if len(curr_s_row)>1 else 0
+        mevcut_satilan = safe_int(curr_s_row[2]) if len(curr_s_row)>2 else 0
+        mevcut_fire = safe_int(curr_s_row[3]) if len(curr_s_row)>3 else 0
+        mevcut_kalan = max(0, u_miktari - mevcut_satilan - mevcut_fire)
+        ekim_tarihi = format_date_tr(curr_s_row[6]) if len(curr_s_row) > 6 else "-"
+        hasat_tarihi = format_date_tr(curr_s_row[8]) if len(curr_s_row) > 8 else "-"
+        
+        with col_s3:
+            st.info(f"📌 **{s_parti} - {s_urun}**\n\nEkim: **{ekim_tarihi}** | Hasat: **{hasat_tarihi}**\n\n**Mevcut Stok:** {mevcut_kalan} Adet (Satılan: {mevcut_satilan} | Fire: {mevcut_fire})")
+            
+        c_sale1, c_sale2, c_sale3 = st.columns([1, 1.5, 1])
+        
+        with c_sale1:
+            satilacak_adet = st.number_input("Satış Yapılan Adet", min_value=1, max_value=max(1, mevcut_kalan) if mevcut_kalan > 0 else 1, value=1, key="satilacak_adet_input")
+            
+        all_customers = DEFAULT_CUSTOMERS + st.session_state.custom_customers
+        customer_options = all_customers + ["➕ Yeni Müşteri Ekle..."]
+        
+        with c_sale2:
+            selected_customer_option = st.selectbox("Müşteri / Satış Noktası", customer_options, key="customer_select_option")
+            
+        final_customer = ""
+        if selected_customer_option == "➕ Yeni Müşteri Ekle...":
+            with c_sale3:
+                new_cust_name = st.text_input("Yeni Müşteri Adını Girin", key="new_cust_name_input")
+                if st.button("➕ Müşteriyi Kaydet", use_container_width=True):
+                    if new_cust_name.strip():
+                        if new_cust_name.strip() not in st.session_state.custom_customers and new_cust_name.strip() not in DEFAULT_CUSTOMERS:
+                            st.session_state.custom_customers.append(new_cust_name.strip())
+                            st.success(f"'{new_cust_name.strip()}' müşteri listesine eklendi!")
+                            st.rerun()
+            final_customer = new_cust_name.strip() if new_cust_name else ""
+        else:
+            final_customer = selected_customer_option
+            
+        if st.button("🛍️ Satışı Onayla ve Tabloya İşle", use_container_width=True):
+            if mevcut_kalan < satilacak_adet:
+                st.error("Yetersiz stok! Satış adedi kalan stoktan fazla olamaz.")
+            elif not final_customer:
+                st.error("Lütfen geçerli bir müşteri seçin veya ekleyin.")
+            else:
+                yeni_satilan_toplam = mevcut_satilan + satilacak_adet
+                yeni_kalan = max(0, u_miktari - yeni_satilan_toplam - mevcut_fire)
+                
+                eski_musteri_metni = curr_s_row[5] if len(curr_s_row) > 5 else ""
+                yeni_kayit_metni = f"{final_customer} ({satilacak_adet} Adet)"
+                if eski_musteri_metni.strip():
+                    yeni_musteri_metni = f"{eski_musteri_metni}, {yeni_kayit_metni}"
+                else:
+                    yeni_musteri_metni = yeni_kayit_metni
+                
+                curr_s_row[2] = str(yeni_satilan_toplam)
+                curr_s_row[4] = str(yeni_kalan)
+                curr_s_row[5] = yeni_musteri_metni
+                
+                st.session_state.sheets[s_parti][s_idx + 1] = curr_s_row
+                save_data_to_sheets(st.session_state.sheets)
+                st.success(f"✅ Satış Başarılı! {final_customer} müşterisine {satilacak_adet} adet {s_urun} satıldı.")
+                st.rerun()
+
+st.markdown("---")
+
 # 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ
 with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu", expanded=False):
     report_list = []
@@ -294,7 +380,14 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                     })
 
                 if musteri and s_cikan > 0:
-                    customer_sales[musteri] = customer_sales.get(musteri, 0) + s_cikan
+                    for m_item in musteri.split(","):
+                        m_item = m_item.strip()
+                        if "(" in m_item and ")" in m_item:
+                            m_name = m_item.split("(")[0].strip()
+                            m_val = safe_int(m_item.split("(")[1].replace("Adet", "").replace(")", "").strip())
+                            customer_sales[m_name] = customer_sales.get(m_name, 0) + m_val
+                        elif m_item:
+                            customer_sales[m_item] = customer_sales.get(m_item, 0) + s_cikan
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🌱 Toplam Üretim", f"{tot_global_u} Adet")
@@ -323,7 +416,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
 
 st.markdown("---")
 
-# YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
+# YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme & Sıfırlama
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -361,6 +454,28 @@ with st.sidebar:
                 st.session_state.active_parti = list(st.session_state.sheets.keys())[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
+
+    st.markdown("---")
+    st.header("🧹 Veri Dönüştürme & Temizleme")
+    if st.button("🗑️ Mevcut Çıkan Ürünleri Fire'ye Taşı", use_container_width=True):
+        for p_key, p_val in st.session_state.sheets.items():
+            for r_idx in range(1, len(p_val)):
+                r = p_val[r_idx]
+                if len(r) > 4:
+                    u_val = safe_int(r[1])
+                    cikan_val = safe_int(r[2]) # Eski çıkan/satılan
+                    mevcut_fire = safe_int(r[3])
+                    
+                    yeni_fire = mevcut_fire + cikan_val
+                    
+                    r[2] = "0" # Satılan sıfırlanır
+                    r[3] = str(yeni_fire) # Fire'ye eklenir
+                    r[4] = str(max(0, u_val - yeni_fire)) # Kalan hesaplanır
+                    if len(r) > 5: r[5] = "" # Müşteri temizlenir
+                    
+        save_data_to_sheets(st.session_state.sheets)
+        st.success("Tüm mevcut stoktan çıkan ürünler başarıyla Fire (Çöp) sütununa taşındı!")
+        st.rerun()
 
     st.markdown("---")
     st.header("📥 Excel Olarak İndir")
@@ -547,9 +662,9 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ
+    # HIZLI DÜZENLEME PANELİ (SADECE ÜRETİM & FİRE YÖNETİMİ)
     st.markdown("---")
-    st.subheader("⚡ Hızlı İşlem Paneli")
+    st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Fire Yönetimi)")
 
     col_hp1, col_hp2 = st.columns(2)
     
@@ -570,7 +685,7 @@ if rows:
     if idx is not None:
         curr_r = target_sheet_rows[idx]
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
             e_ekim = st.date_input(
                 "Ekim Tarihi (Gün/Ay/Yıl)", 
@@ -585,36 +700,24 @@ if rows:
                 key=f"input_u_adet_{target_parti}_{selected_urun}"
             )
         with c2:
-            e_s_cikan = st.number_input(
-                "Satılan Adet", 
-                min_value=0, 
-                value=safe_int(curr_r[2]) if len(curr_r)>2 else 0,
-                key=f"input_s_cikan_{target_parti}_{selected_urun}"
-            )
             e_fire = st.number_input(
                 "Çöpe Atılan (Fire)", 
                 min_value=0, 
                 value=safe_int(curr_r[3]) if len(curr_r)>3 else 0,
                 key=f"input_fire_{target_parti}_{selected_urun}"
             )
-        with c3:
             e_kar = st.number_input(
                 "Karanlıkta (gün)", 
                 min_value=1, 
                 value=safe_int(curr_r[9]) if len(curr_r)>9 and curr_r[9] != "" else 3,
                 key=f"input_kar_{target_parti}_{selected_urun}"
             )
+        with c3:
             e_has = st.number_input(
                 "Hasat Süresi (gün)", 
                 min_value=1, 
                 value=safe_int(curr_r[7]) if len(curr_r)>7 and curr_r[7] != "" else 10,
                 key=f"input_has_{target_parti}_{selected_urun}"
-            )
-        with c4:
-            e_musteri = st.text_input(
-                "Satış Yapılan Yer / Müşteri",
-                value=curr_r[5] if len(curr_r)>5 else "",
-                key=f"input_mus_{target_parti}_{selected_urun}"
             )
             e_not = st.text_input(
                 "Not / Açıklama", 
@@ -623,6 +726,8 @@ if rows:
             )
 
         if st.button(f"⚡ {selected_urun} ({target_parti}) Verilerini Kaydet", use_container_width=True):
+            e_s_cikan = safe_int(curr_r[2]) if len(curr_r)>2 else 0
+            e_musteri = curr_r[5] if len(curr_r)>5 else ""
             kalan = max(0, e_u_adet - e_s_cikan - e_fire)
             isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
             hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
@@ -643,7 +748,7 @@ if rows:
             ]
             st.session_state.sheets[target_parti][idx + 1] = updated
             save_data_to_sheets(st.session_state.sheets)
-            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Kalan Ürün: {kalan} | Satış Yapılan: {e_musteri if e_musteri else '-'}")
+            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Çöpe Atılan: {e_fire} | Kalan Ürün: {kalan}")
             st.rerun()
     else:
         st.warning(f"'{selected_urun}' adlı ürün {target_parti} içerisinde henüz tanımlı değil.")
