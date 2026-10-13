@@ -1,3 +1,2 @@
-requirements.txtstreamlit
+streamlit
 openpyxl
-pandas
