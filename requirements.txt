@@ -1,0 +1,3 @@
+requirements.txtstreamlit
+openpyxl
+pandas
