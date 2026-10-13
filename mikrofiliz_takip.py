@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Orijinal Excel Şablon Verileri ve Varsayılan Tohum Gramajları (1 Viyol İçin Gramaj)
+# Orijinal Excel Şablon Verileri ve Varsayılan Tohum Gramajları
 ORIGINAL_PRODUCT_TEMPLATES = [
     ("Amaranth", "10", "3", 5),
     ("Bezelye", "12", "4", 150),
@@ -60,14 +60,6 @@ def safe_int(val):
         return int(float(val_str))
     except:
         return 0
-
-def safe_float(val):
-    if not val: return 0.0
-    try:
-        val_str = str(val).replace("💡", "").strip()
-        return float(val_str)
-    except:
-        return 0.0
 
 def parse_tr_date(dt_str):
     if not dt_str: return None
@@ -248,13 +240,18 @@ if "archived_partis" not in st.session_state:
 if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
-# Tohum Ayarları ve Stok Durumu (Session State)
-if "seed_config" not in st.session_state:
-    # {urun_adi: {"total_stock": float(gram), "per_unit": float(gram)}}
-    st.session_state.seed_config = {
-        name: {"total_stock": 1000.0, "per_unit": float(gram_unit)} 
-        for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES
-    }
+# MARKALI TOHUM STOK YAPISI
+if "brand_seed_stocks" not in st.session_state:
+    # [{"product": "Beyaz Turp", "brand": "A Marka", "stock_gram": 1000.0, "per_unit_gram": 30.0, "is_active": True}, ...]
+    st.session_state.brand_seed_stocks = []
+    for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
+        st.session_state.brand_seed_stocks.append({
+            "product": name,
+            "brand": "Varsayılan Marka",
+            "stock_gram": 1000.0,
+            "per_unit_gram": float(gram_unit),
+            "is_active": True
+        })
 
 all_parti_names = list(st.session_state.sheets.keys())
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
@@ -273,7 +270,7 @@ if not active_parti_names:
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
 
-st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
+st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Markalı Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -291,7 +288,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             new_p_name = st.text_input("Ürün Adı", key="add_new_p_name")
             new_p_hasat = st.number_input("Hasat Süresi (gün)", min_value=1, value=10, key="add_new_p_hasat")
             new_p_kar = st.number_input("Karanlıkta Kalma (gün)", min_value=1, value=3, key="add_new_p_kar")
-            new_p_gram = st.number_input("1 Viyol/Kap İçin Tohum (gram)", min_value=1.0, value=20.0, step=1.0, key="add_new_p_gram")
             
             if st.button("🌱 Yeni Ürünü Ekle", use_container_width=True):
                 if new_p_name.strip() and new_p_name.strip() not in current_prods:
@@ -300,9 +296,15 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                         st.session_state.sheets[p_key].append([
                             p_name_clean, "0", "0", "0", "0", "", "", str(new_p_hasat), "", str(new_p_kar), "", ""
                         ])
-                    st.session_state.seed_config[p_name_clean] = {"total_stock": 1000.0, "per_unit": float(new_p_gram)}
+                    st.session_state.brand_seed_stocks.append({
+                        "product": p_name_clean,
+                        "brand": "Varsayılan Marka",
+                        "stock_gram": 1000.0,
+                        "per_unit_gram": 20.0,
+                        "is_active": True
+                    })
                     save_data_to_sheets(st.session_state.sheets)
-                    st.success(f"'{p_name_clean}' tüm partilere ve Tohum Takip Sistemine eklendi!")
+                    st.success(f"'{p_name_clean}' tüm partilere ve Tohum Sistemine eklendi!")
                     st.rerun()
                 else:
                     st.error("Lütfen geçerli veya listede bulunmayan bir ürün adı girin.")
@@ -332,8 +334,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                 if st.button("🗑️ Ürünü Sil", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
                         st.session_state.sheets[p_key] = [r for r in st.session_state.sheets[p_key] if len(r)==0 or r[0] != edit_p_select]
-                    if edit_p_select in st.session_state.seed_config:
-                        del st.session_state.seed_config[edit_p_select]
+                    st.session_state.brand_seed_stocks = [s for s in st.session_state.brand_seed_stocks if s["product"] != edit_p_select]
                     save_data_to_sheets(st.session_state.sheets)
                     st.success(f"'{edit_p_select}' sistemden silindi!")
                     st.rerun()
@@ -383,9 +384,9 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
 
 st.markdown("---")
 
-# 🛒 TOHUM STOK VE ÜRETİM KAPASİTESİ TAKİP MODÜLÜ
-with st.expander("🛒 Tohum Stok Miktarları ve Üretim Kapasitesi Takibi", expanded=True):
-    # Tüm Partilerdeki Ürün Bazlı Toplam Üretim Adetlerini Hesapla
+# 🛒 MARKALI TOHUM STOK VE ÜRETİM KAPASİTESİ TAKİP MODÜLÜ
+with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Takibi", expanded=True):
+    # Ürün bazlı ekilen toplam adetleri hesapla
     total_production_by_product = {}
     for p_name in active_parti_names:
         for r in st.session_state.sheets.get(p_name, [])[1:]:
@@ -396,57 +397,88 @@ with st.expander("🛒 Tohum Stok Miktarları ve Üretim Kapasitesi Takibi", exp
     first_p_rows = st.session_state.sheets[all_parti_names[0]][1:]
     all_current_prods = [r[0] for r in first_p_rows if len(r)>0 and r[0] != "Toplam Üretim"]
 
-    # Eksik ürün varsa seed_config içine ekle
-    for p in all_current_prods:
-        if p not in st.session_state.seed_config:
-            st.session_state.seed_config[p] = {"total_stock": 1000.0, "per_unit": 20.0}
-
-    col_st1, col_st2 = st.columns([1, 2])
+    col_st1, col_st2 = st.columns([1.2, 2])
 
     with col_st1:
-        st.markdown("#### ✏️ Tohum Stoğu & Gramaj Düzenle")
-        selected_seed_prod = st.selectbox("Düzenlenecek Ürün Tohumu", all_current_prods, key="seed_edit_select")
+        st.markdown("#### 🏷️ Yeni Markalı Tohum Ekle / Güncelle")
+        target_prod_for_seed = st.selectbox("İlgili Ürün", all_current_prods, key="seed_target_prod_select")
         
-        cur_tot_stock = st.session_state.seed_config[selected_seed_prod]["total_stock"]
-        cur_per_unit = st.session_state.seed_config[selected_seed_prod]["per_unit"]
+        # O ürüne ait mevcut markalar
+        existing_brands_for_prod = [s for s in st.session_state.brand_seed_stocks if s["product"] == target_prod_for_seed]
+        
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            seed_brand_name = st.text_input("Marka / Paket Adı", value="A Marka", key="seed_brand_name_input")
+        with c_b2:
+            seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=1000.0, step=100.0, key="seed_stock_gram_input")
 
-        new_tot_stock = st.number_input("Toplam Depo Stoğu (Gram)", min_value=0.0, value=cur_tot_stock, step=100.0, key="seed_input_tot_stock")
-        new_per_unit = st.number_input("1 Viyol İçin Harcanan Tohum (Gram)", min_value=0.1, value=cur_per_unit, step=1.0, key="seed_input_per_unit")
+        seed_unit_gram = st.number_input("1 Viyol/Kap İçin Harcanan (Gram)", min_value=0.1, value=20.0, step=1.0, key="seed_unit_gram_input")
+        set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=True, key="seed_set_active_check")
 
-        if st.button("💾 Tohum Bilgilerini Kaydet", use_container_width=True):
-            st.session_state.seed_config[selected_seed_prod]["total_stock"] = new_tot_stock
-            st.session_state.seed_config[selected_seed_prod]["per_unit"] = new_per_unit
-            st.success(f"'{selected_seed_prod}' tohum stok bilgileri güncellendi!")
-            st.rerun()
+        if st.button("💾 Markalı Tohumu Kaydet", use_container_width=True):
+            if seed_brand_name.strip():
+                # Eğer aynı markadan varsa güncelle
+                found = False
+                for s in st.session_state.brand_seed_stocks:
+                    if s["product"] == target_prod_for_seed and s["brand"] == seed_brand_name.strip():
+                        s["stock_gram"] = seed_stock_gram
+                        s["per_unit_gram"] = seed_unit_gram
+                        if set_as_active:
+                            for other in st.session_state.brand_seed_stocks:
+                                if other["product"] == target_prod_for_seed:
+                                    other["is_active"] = False
+                            s["is_active"] = True
+                        found = True
+                        break
+                
+                if not found:
+                    if set_as_active:
+                        for other in st.session_state.brand_seed_stocks:
+                            if other["product"] == target_prod_for_seed:
+                                other["is_active"] = False
+                    st.session_state.brand_seed_stocks.append({
+                        "product": target_prod_for_seed,
+                        "brand": seed_brand_name.strip(),
+                        "stock_gram": seed_stock_gram,
+                        "per_unit_gram": seed_unit_gram,
+                        "is_active": set_as_active
+                    })
+                st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu kaydedildi!")
+                st.rerun()
 
     with col_st2:
-        st.markdown("#### 📋 Tohum Stoğu & Yapılabilecek Üretim Tablosu")
-        seed_table_data = []
+        st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
+        seed_table_rows = []
 
-        for p in all_current_prods:
-            cfg = st.session_state.seed_config.get(p, {"total_stock": 1000.0, "per_unit": 20.0})
-            tot_stk = cfg["total_stock"]
-            unit_gram = cfg["per_unit"]
-            
-            prod_cnt = total_production_by_product.get(p, 0)
-            used_gram = prod_cnt * unit_gram
-            rem_gram = max(0.0, tot_stk - used_gram)
-            
-            # Kalan Tohumla Yapılabilecek Üretim Adeti
-            possible_prod = int(rem_gram // unit_gram) if unit_gram > 0 else 0
+        for item in st.session_state.brand_seed_stocks:
+            p_name = item["product"]
+            b_name = item["brand"]
+            tot_g = item["stock_gram"]
+            u_g = item["per_unit_gram"]
+            is_act = item["is_active"]
 
-            seed_table_data.append({
-                "Ürün Adı": p,
-                "Toplam Depo Stoğu (g)": f"{tot_stk:.0f} g",
-                "1 Viyol İçin (g)": f"{unit_gram:.1f} g",
-                "Toplam Ekilen": f"{prod_cnt} Adet",
-                "Harcanan Tohum": f"{used_gram:.0f} g",
-                "Kalan Tohum": f"{rem_gram:.0f} g",
-                "🌱 Yapılabilecek Üretim Potansiyeli": f"{possible_prod} Adet Viyol"
+            # Eğer aktif kullanılansa üretim adetini düş
+            used_g = 0.0
+            if is_act:
+                p_cnt = total_production_by_product.get(p_name, 0)
+                used_g = p_cnt * u_g
+
+            rem_g = max(0.0, tot_g - used_g)
+            possible_viyol = int(rem_g // u_g) if u_g > 0 else 0
+
+            seed_table_rows.append({
+                "Üretilen Ürün": p_name,
+                "Tohum Markası": f"{'⭐ (Kullanılan) ' if is_act else ''}{b_name}",
+                "Depo Stoğu": f"{tot_g:.0f} g",
+                "1 Viyol (g)": f"{u_g:.1f} g",
+                "Harcanan": f"{used_g:.0f} g",
+                "Kalan Tohum": f"{rem_g:.0f} g",
+                "🌱 Yapılabilecek Üretim": f"{possible_viyol} Adet Viyol"
             })
 
-        df_seed = pd.DataFrame(seed_table_data)
-        st.dataframe(df_seed, hide_index=True, use_container_width=True)
+        if seed_table_rows:
+            df_seeds = pd.DataFrame(seed_table_rows)
+            st.dataframe(df_seeds, hide_index=True, use_container_width=True)
 
 st.markdown("---")
 
