@@ -10,6 +10,22 @@ st.set_page_config(
     layout="wide"
 )
 
+# Varsayılan Ürün Listesi ve Şablon
+DEFAULT_PRODUCTS = [
+    "Amaranth Mikrofilizi", "Bezelye Mikrofilizi", "İtalyan Fesleğen Mikrofilizi",
+    "Havuç Mikrofilizi", "Kişniş Mikrofilizi", "Mor Reyhan Mikrofilizi",
+    "Mor Lahana Mikrofilizi", "Pembe Turp Mikrofilizi", "Mor Turp Mikrofilizi",
+    "Roka Mikrofilizi", "Brokoli Mikrofilizi", "Hardal (Mizuna) Mikrofilizi",
+    "Beyaz Turp Mikrofilizi", "Thai Fesleğen Mikrofilizi"
+]
+
+def get_default_sheet_data():
+    headers = ["Ürün Adı", "Üretim Adeti", "Stoktan Çıkan", "Kalan Ürün", "Ekim Günü", "Hasat Süresi (gün)", "Hasat Tarihi", "Karanlıkta (gün)", "Işığa Çıkış Tarihi", "Not"]
+    rows = [headers]
+    for p in DEFAULT_PRODUCTS:
+        rows.append([p, "0", "0", "0", "", "10", "", "3", "", ""])
+    return {"Parti No.1": rows}
+
 # Google Sheets Bağlantı Kurulumu
 @st.cache_resource
 def get_gspread_client():
@@ -44,28 +60,20 @@ def parse_tr_date(dt_str):
 def load_data_from_sheets():
     try:
         gc = get_gspread_client()
-        # Google E-Tablo adıyla açıyoruz
         sh = gc.open("Mikrofiliz_Verileri")
         sheets = {}
         for ws in sh.worksheets():
             rows = ws.get_all_values()
-            if rows:
+            if len(rows) > 1: # Başlık dışında veri var mı?
                 clean_prod = [r for r in rows[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
-                sheets[ws.title] = [rows[0]] + clean_prod
+                if clean_prod:
+                    sheets[ws.title] = [rows[0]] + clean_prod
         if sheets:
             return sheets
     except Exception as e:
         st.sidebar.warning(f"Google Sheets yüklenemedi: {e}")
 
-    # Varsayılan şablon
-    return {
-        "Parti No.1": [
-            ["Ürün Adı", "Üretim Adeti", "Stoktan Çıkan", "Kalan Ürün", "Ekim Günü", "Hasat Süresi (gün)", "Hasat Tarihi", "Karanlıkta (gün)", "Işığa Çıkış Tarihi", "Not"],
-            ["Amaranth Mikrofilizi", "0", "0", "0", "", "10", "", "3", "", ""],
-            ["Bezelye Mikrofilizi", "0", "0", "0", "", "12", "", "4", "", ""],
-            ["Roka Mikrofilizi", "0", "0", "0", "", "8", "", "3", "", ""]
-        ]
-    }
+    return get_default_sheet_data()
 
 def save_data_to_sheets(sheets_data):
     try:
@@ -95,7 +103,6 @@ def save_data_to_sheets(sheets_data):
             full_rows = [rows[0]] + data_rows + [tot_row]
             ws.update("A1", full_rows)
             
-        # Silinen partileri Google Sheets'ten de sil
         for old_title, ws in existing_worksheets.items():
             if old_title not in sheets_data and len(sh.worksheets()) > 1:
                 sh.del_worksheet(ws)
@@ -215,42 +222,43 @@ if rows:
     st.markdown("---")
     st.subheader("⚡ Hızlı İşlem Paneli")
 
-    col_u1, col_u2 = st.columns([2, 1])
-    with col_u1:
-        selected_urun = st.selectbox("Düzenlemek İstediğiniz Ürünü Seçin", [r[0] for r in prod_rows])
-    
-    idx = next(i for i, r in enumerate(prod_rows) if r[0] == selected_urun)
-    curr_r = prod_rows[idx]
+    if prod_rows:
+        col_u1, col_u2 = st.columns([2, 1])
+        with col_u1:
+            selected_urun = st.selectbox("Düzenlemek İstediğiniz Ürünü Seçin", [r[0] for r in prod_rows])
+        
+        idx = next((i for i, r in enumerate(prod_rows) if r[0] == selected_urun), 0)
+        curr_r = prod_rows[idx]
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        e_ekim = st.date_input("Ekim Tarihi", parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today())
-        e_u_adet = st.number_input("Üretim Adeti", min_value=0, value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0)
-    with c2:
-        e_kar = st.number_input("Karanlıkta (gün)", min_value=1, value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 3)
-        e_s_cikan = st.number_input("Stoktan Çıkan", min_value=0, value=int(float(curr_r[2])) if len(curr_r)>2 and curr_r[2] else 0)
-    with c3:
-        e_has = st.number_input("Hasat Süresi (gün)", min_value=1, value=int(float(curr_r[5])) if len(curr_r)>5 and curr_r[5] else 10)
-        e_not = st.text_input("Not / Açıklama", value=curr_r[9] if len(curr_r)>9 else "")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            e_ekim = st.date_input("Ekim Tarihi", parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today())
+            e_u_adet = st.number_input("Üretim Adeti", min_value=0, value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0)
+        with c2:
+            e_kar = st.number_input("Karanlıkta (gün)", min_value=1, value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 3)
+            e_s_cikan = st.number_input("Stoktan Çıkan", min_value=0, value=int(float(curr_r[2])) if len(curr_r)>2 and curr_r[2] else 0)
+        with c3:
+            e_has = st.number_input("Hasat Süresi (gün)", min_value=1, value=int(float(curr_r[5])) if len(curr_r)>5 and curr_r[5] else 10)
+            e_not = st.text_input("Not / Açıklama", value=curr_r[9] if len(curr_r)>9 else "")
 
-    if st.button("⚡ Hesapla ve Tabloya İşle", use_container_width=True):
-        kalan = max(0, e_u_adet - e_s_cikan)
-        isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
-        hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
+        if st.button("⚡ Hesapla ve Tabloya İşle", use_container_width=True):
+            kalan = max(0, e_u_adet - e_s_cikan)
+            isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
+            hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
 
-        updated = [
-            selected_urun,
-            str(e_u_adet),
-            str(e_s_cikan),
-            str(kalan),
-            e_ekim.strftime("%d.%m.%Y"),
-            str(e_has),
-            hasat_dt.strftime("%d.%m.%Y"),
-            str(e_kar),
-            isik_dt.strftime("%d.%m.%Y"),
-            e_not
-        ]
-        st.session_state.sheets[selected_parti][idx + 1] = updated
-        save_data_to_sheets(st.session_state.sheets)
-        st.success(f"'{selected_urun}' güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
-        st.rerun()
+            updated = [
+                selected_urun,
+                str(e_u_adet),
+                str(e_s_cikan),
+                str(kalan),
+                e_ekim.strftime("%d.%m.%Y"),
+                str(e_has),
+                hasat_dt.strftime("%d.%m.%Y"),
+                str(e_kar),
+                isik_dt.strftime("%d.%m.%Y"),
+                e_not
+            ]
+            st.session_state.sheets[selected_parti][idx + 1] = updated
+            save_data_to_sheets(st.session_state.sheets)
+            st.success(f"'{selected_urun}' güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
+            st.rerun()
