@@ -186,7 +186,12 @@ st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     parti_names = list(st.session_state.sheets.keys())
-    selected_parti = st.selectbox("Aktif Parti Seçin", parti_names)
+    
+    # Session state ile seçili partiyi kontrol et
+    if "selected_parti" not in st.session_state or st.session_state.selected_parti not in parti_names:
+        st.session_state.selected_parti = parti_names[0]
+
+    selected_parti = st.selectbox("Aktif Parti Seçin", parti_names, key="selected_parti")
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
@@ -201,6 +206,7 @@ with st.sidebar:
                 tmpl = [r[0], "0", "0", "0", "", r[5] if len(r)>5 else "10", "", r[7] if len(r)>7 else "3", "", ""]
                 new_rows.append(tmpl)
             st.session_state.sheets[new_name] = new_rows
+            st.session_state.selected_parti = new_name
             save_data_to_sheets(st.session_state.sheets)
             st.rerun()
 
@@ -208,6 +214,7 @@ with st.sidebar:
         if len(parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
                 del st.session_state.sheets[selected_parti]
+                st.session_state.selected_parti = list(st.session_state.sheets.keys())[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
 
@@ -231,6 +238,7 @@ with st.sidebar:
                 parsed_sheets = parse_excel_file(uploaded_excel)
                 if parsed_sheets:
                     st.session_state.sheets = parsed_sheets
+                    st.session_state.selected_parti = list(parsed_sheets.keys())[0]
                     save_data_to_sheets(parsed_sheets)
                     st.success("Excel başarıyla okundu ve Google Sheets veritabanına aktarıldı!")
                     st.rerun()
@@ -254,7 +262,7 @@ if rows:
 
     today = datetime.date.today()
 
-    # EĞER BELİRLİ BİR ÜRÜN SEÇİLDİYSE (Örn: Amaranth)
+    # EĞER BELİRLİ BİR ÜRÜN SEÇİLDİYSE
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
         st.subheader(f"📊 '{selected_filter_product}' İçin Tüm Partilerin Üretim Geçmişi")
         
@@ -304,7 +312,6 @@ if rows:
                     })
 
         if product_history:
-            # Toplam Özeti
             product_history.append({
                 "Parti Adı": "📊 GENEL TOPLAM",
                 "Durum": "-",
@@ -324,6 +331,7 @@ if rows:
 
     # NORMAL TÜM PARTİ TABLOSU GÖRÜNÜMÜ
     else:
+        st.markdown(f"### 📋 {selected_parti} Üretim Tablosu")
         st.markdown("""
         **🎨 Durum Renk Anlamları:** 
         ⚪ **Ekilmedi** | 🩶 **Karanlıkta** | 🟡 **Işığa Çıkmalı 💡** | 🟢 **Hasat Zamanı**
@@ -393,13 +401,28 @@ if rows:
     st.markdown("---")
     st.subheader("⚡ Hızlı İşlem Paneli")
 
-    if prod_rows:
-        col_u1, col_u2 = st.columns([2, 1])
-        with col_u1:
-            selected_urun = st.selectbox("Düzenlemek İstediğiniz Ürünü Seçin", [r[0] for r in prod_rows])
+    col_hp1, col_hp2 = st.columns([1, 2])
+    
+    with col_hp1:
+        # Doğrudan Hızlı Panilden Parti Seçebilme Alanı
+        target_parti = st.selectbox(
+            "📂 İşlem Yapılacak Parti",
+            parti_names,
+            index=parti_names.index(selected_parti) if selected_parti in parti_names else 0,
+            key="quick_parti_select"
+        )
+        if target_parti != selected_parti:
+            st.session_state.selected_parti = target_parti
+            st.rerun()
+
+    target_rows = st.session_state.sheets.get(target_parti, [])[1:]
+
+    if target_rows:
+        with col_hp2:
+            selected_urun = st.selectbox("🌱 Düzenlemek İstediğiniz Ürünü Seçin", [r[0] for r in target_rows])
         
-        idx = next((i for i, r in enumerate(prod_rows) if r[0] == selected_urun), 0)
-        curr_r = prod_rows[idx]
+        idx = next((i for i, r in enumerate(target_rows) if r[0] == selected_urun), 0)
+        curr_r = target_rows[idx]
 
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -429,7 +452,7 @@ if rows:
                 isik_dt.strftime("%d.%m.%Y"),
                 e_not
             ]
-            st.session_state.sheets[selected_parti][idx + 1] = updated
+            st.session_state.sheets[target_parti][idx + 1] = updated
             save_data_to_sheets(st.session_state.sheets)
-            st.success(f"'{selected_urun}' güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
+            st.success(f"'{selected_urun}' [{target_parti}] güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
             st.rerun()
