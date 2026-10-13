@@ -13,13 +13,34 @@ st.set_page_config(
     layout="wide"
 )
 
-# Varsayılan Ürün ve Müşteri Listeleri (Korunan İsimler)
-DEFAULT_PRODUCTS = [
-    "Amaranth Mikrofilizi", "Bezelye Mikrofilizi", "İtalyan Fesleğen Mikrofilizi",
-    "Havuç Mikrofilizi", "Kişniş Mikrofilizi", "Mor Reyhan Mikrofilizi",
-    "Mor Lahana Mikrofilizi", "Pembe Turp Mikrofilizi", "Mor Turp Mikrofilizi",
-    "Roka Mikrofilizi", "Brokoli Mikrofilizi", "Hardal (Mizuna) Mikrofilizi",
-    "Beyaz Turp Mikrofilizi", "Thai Fesleğen Mikrofilizi"
+# OrjinalFormat.xlsx Dosyasından Alınan Birebir Ürün ve Süre Şablonu
+ORIGINAL_PRODUCT_TEMPLATES = [
+    ("Amaranth", "10", "3"),
+    ("Bezelye", "12", "4"),
+    ("Fesleğen İtalyan (İntfa)", "18", "5"),
+    ("Havuç", "22", "5"),
+    ("Kişniş", "22", "5"),
+    ("Reyhan", "18", "5"),
+    ("Mor Lahana", "9", "3"),
+    ("Pembe Turp", "9", "3"),
+    ("Rambo Turp Mor", "9", "3"),
+    ("Roka", "9", "3"),
+    ("Brokoli", "9", "3"),
+    ("Hardal (Mizuna)", "9", "3"),
+    ("Beyaz Turp", "9", "3"),
+    ("Fesleğen (Thai)", "18", "5"),
+    ("Hodan", "12", "3"),
+    ("Çemen", "10", "3"),
+    ("Frenk soğanı", "14", "5"),
+    ("Kırmızı Pancar", "12", "3"),
+    ("Maş Fasulyesi", "10", "3"),
+    ("Marul", "12", "3"),
+    ("Kuzu kulağı", "18", "5"),
+    ("Kırmızı Damarlı Kuzukulağı", "18", "5"),
+    ("Ayçekirdeği", "12", "3"),
+    ("Mor Alabaş", "10", "3"),
+    ("Kara lahana", "10", "3"),
+    ("Tere", "8", "3")
 ]
 
 DEFAULT_CUSTOMERS = [
@@ -65,8 +86,8 @@ def format_date_tr(dt_val):
 
 def get_clean_empty_sheet_data():
     rows = [HEADERS]
-    for p in DEFAULT_PRODUCTS:
-        rows.append([p, "0", "0", "0", "0", "", "", "10", "", "3", "", ""])
+    for name, hasat, kar in ORIGINAL_PRODUCT_TEMPLATES:
+        rows.append([name, "0", "0", "0", "0", "", "", hasat, "", kar, "", ""])
     return {"Parti No.1": rows}
 
 # Google Sheets Bağlantı Kurulumu
@@ -91,6 +112,8 @@ def load_data_from_sheets():
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
         sheets = {}
+        template_dict = {p[0]: (p[1], p[2]) for p in ORIGINAL_PRODUCT_TEMPLATES}
+
         for ws in sh.worksheets():
             rows = ws.get_all_values()
             if len(rows) > 1:
@@ -104,9 +127,13 @@ def load_data_from_sheets():
                         kalan = safe_int(r[4]) if len(r)>4 else 0
                         musteri = str(r[5]).strip() if len(r)>5 and not str(r[5]).strip().isdigit() else ""
                         ekim_str = format_date_tr(r[6]) if len(r)>6 else ""
-                        has_suresi = str(r[7]).strip() if len(r)>7 and str(r[7]).strip().isdigit() else "10"
+                        
+                        # Orijinal excel sürelerini eşleştir
+                        def_hasat, def_kar = template_dict.get(u_name, ("10", "3"))
+                        has_suresi = str(r[7]).strip() if len(r)>7 and str(r[7]).strip().isdigit() else def_hasat
+                        kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip().isdigit() else def_kar
+
                         has_tarihi = format_date_tr(r[8]) if len(r)>8 else ""
-                        kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip().isdigit() else "3"
                         isik_tarihi = format_date_tr(r[10]) if len(r)>10 else ""
                         not_txt = str(r[11]).strip() if len(r)>11 else ""
 
@@ -222,11 +249,9 @@ with st.sidebar:
             next_num = max(nums) + 1 if nums else 1
             new_name = f"Parti No.{next_num}"
             
-            first_sheet = st.session_state.sheets[parti_names[0]]
             new_rows = [HEADERS]
-            for r in first_sheet[1:]:
-                tmpl = [r[0], "0", "0", "0", "0", "", "", r[7] if len(r)>7 else "10", "", r[9] if len(r)>9 else "3", "", ""]
-                new_rows.append(tmpl)
+            for name, hasat, kar in ORIGINAL_PRODUCT_TEMPLATES:
+                new_rows.append([name, "0", "0", "0", "0", "", "", hasat, "", kar, "", ""])
             st.session_state.sheets[new_name] = new_rows
             st.session_state.active_parti = new_name
             save_data_to_sheets(st.session_state.sheets)
@@ -242,21 +267,11 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("🧹 Sıfırlama Paneli")
-    if st.button("🔄 Tüm Üretim ve Stok Verilerini Sıfırla (0 Yap)", use_container_width=True, type="primary"):
-        for p_key, p_val in st.session_state.sheets.items():
-            for r_idx in range(1, len(p_val)):
-                r = p_val[r_idx]
-                r[1] = "0"  # Üretim
-                r[2] = "0"  # Satılan
-                r[3] = "0"  # Fire
-                r[4] = "0"  # Kalan
-                r[5] = ""   # Müşteri
-                r[6] = ""   # Ekim Günü
-                r[8] = ""   # Hasat Tarihi
-                r[10] = ""  # Işığa Çıkış
-                r[11] = ""  # Not
+    if st.button("🔄 Orijinal Şablon İle Sıfırla (0 Yap)", use_container_width=True, type="primary"):
+        st.session_state.sheets = get_clean_empty_sheet_data()
+        st.session_state.active_parti = "Parti No.1"
         save_data_to_sheets(st.session_state.sheets)
-        st.success("Tüm veriler başarıyla 0 yapıldı ve sıfırlandı!")
+        st.success("Tüm ürünler orijinal Excel sürelerinizle 0 olarak sıfırlandı!")
         st.rerun()
 
     st.markdown("---")
