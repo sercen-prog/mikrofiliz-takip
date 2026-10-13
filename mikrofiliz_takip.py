@@ -1,5 +1,7 @@
 import json
 import datetime
+import io
+import openpyxl
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -64,7 +66,7 @@ def load_data_from_sheets():
         sheets = {}
         for ws in sh.worksheets():
             rows = ws.get_all_values()
-            if len(rows) > 1: # Başlık dışında veri var mı?
+            if len(rows) > 1:
                 clean_prod = [r for r in rows[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
                 if clean_prod:
                     sheets[ws.title] = [rows[0]] + clean_prod
@@ -111,12 +113,27 @@ def save_data_to_sheets(sheets_data):
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
 
+def parse_excel_file(uploaded_file):
+    sheets = {}
+    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+    for s_name in wb.sheetnames:
+        ws = wb[s_name]
+        rows_data = []
+        for row in ws.iter_rows(values_only=True):
+            row_vals = [str(cell) if cell is not None else "" for cell in row]
+            if any(row_vals):
+                rows_data.append(row_vals)
+        if len(rows_data) > 1:
+            clean_prod = [r for r in rows_data[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
+            sheets[s_name] = [rows_data[0]] + clean_prod
+    return sheets
+
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
-# YAN MENÜ: Parti Yönetimi
+# YAN MENÜ: Parti Yönetimi ve Excel İçe Aktarma
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     parti_names = list(st.session_state.sheets.keys())
@@ -144,6 +161,23 @@ with st.sidebar:
                 del st.session_state.sheets[selected_parti]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
+
+    st.markdown("---")
+    st.header("📤 Excel İçe Aktar")
+    uploaded_excel = st.file_uploader("Güncel Excel Dosyasını Yükleyin (.xlsx)", type=["xlsx"])
+    if uploaded_excel is not None:
+        if st.button("🔄 Excel Verilerini Aktar ve Kaydet", use_container_width=True):
+            try:
+                parsed_sheets = parse_excel_file(uploaded_excel)
+                if parsed_sheets:
+                    st.session_state.sheets = parsed_sheets
+                    save_data_to_sheets(parsed_sheets)
+                    st.success("Excel başarıyla okundu ve Google Sheets veritabanına aktarıldı!")
+                    st.rerun()
+                else:
+                    st.error("Excel dosyasından geçerli sayfa verisi okunamadı.")
+            except Exception as e:
+                st.error(f"Excel Okuma Hatası: {e}")
 
 # ANA TABLO
 rows = st.session_state.sheets.get(selected_parti, [])
