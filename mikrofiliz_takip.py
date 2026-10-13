@@ -187,10 +187,14 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
-# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ
+# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ (TARİHLİ)
 today = datetime.date.today()
 yesterday = today - datetime.timedelta(days=1)
 tomorrow = today + datetime.timedelta(days=1)
+
+str_yesterday = yesterday.strftime("%d.%m.%Y")
+str_today = today.strftime("%d.%m.%Y")
+str_tomorrow = tomorrow.strftime("%d.%m.%Y")
 
 dun_islem = []
 bugun_islem = []
@@ -209,7 +213,7 @@ for p_name, p_rows in st.session_state.sheets.items():
                 isik_dt = parse_tr_date(isik_str)
                 hasat_dt = parse_tr_date(hasat_str)
 
-                # DÜN (Gecikenler)
+                # DÜN
                 if hasat_dt == yesterday:
                     dun_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilmeliydi")
                 elif isik_dt == yesterday:
@@ -233,21 +237,21 @@ if dun_islem or bugun_islem or yarin_islem:
     
     with col_d:
         if dun_islem:
-            st.error("🔴 **DÜN (Gecikenler):**\n\n" + "\n\n".join(dun_islem))
+            st.error(f"🔴 **DÜN ({str_yesterday}):**\n\n" + "\n\n".join(dun_islem))
         else:
-            st.info("🔴 **DÜN:**\nGeciken işlem yok.")
+            st.info(f"🔴 **DÜN ({str_yesterday}):**\nGeciken işlem yok.")
 
     with col_b:
         if bugun_islem:
-            st.warning("🟡 **BUGÜN (Yapılacaklar):**\n\n" + "\n\n".join(bugun_islem))
+            st.warning(f"🟡 **BUGÜN ({str_today}):**\n\n" + "\n\n".join(bugun_islem))
         else:
-            st.success("🟡 **BUGÜN:**\nAcil işlem yok.")
+            st.success(f"🟡 **BUGÜN ({str_today}):**\nAcil işlem yok.")
 
     with col_y:
         if yarin_islem:
-            st.info("🔵 **YARIN (Yaklaşanlar):**\n\n" + "\n\n".join(yarin_islem))
+            st.info(f"🔵 **YARIN ({str_tomorrow}):**\n\n" + "\n\n".join(yarin_islem))
         else:
-            st.info("🔵 **YARIN:**\nPlanlı işlem yok.")
+            st.info(f"🔵 **YARIN ({str_tomorrow}):**\nPlanlı işlem yok.")
             
     st.markdown("---")
 
