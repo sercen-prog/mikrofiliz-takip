@@ -1,7 +1,8 @@
-import os
+import json
 import datetime
-import openpyxl
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(
     page_title="🌱 Mikrofiliz Üretim ve Stok Takip",
@@ -9,8 +10,22 @@ st.set_page_config(
     layout="wide"
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL_FILE = os.path.join(BASE_DIR, "Güncel Üretim.xlsx")
+# Google Sheets Bağlantı Kurulumu
+@st.cache_resource
+def get_gspread_client():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    if "gcp_json" in st.secrets:
+        creds_dict = json.loads(st.secrets["gcp_json"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    elif "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    else:
+        raise ValueError("Google Service Account anahtarı Streamlit Secrets içinde bulunamadı!")
+    return gspread.authorize(creds)
 
 def parse_tr_date(dt_str):
     if not dt_str: return None
@@ -26,46 +41,46 @@ def parse_tr_date(dt_str):
     except: return None
     return None
 
-def format_date_tr(dt_val):
-    if not dt_val: return ""
-    if isinstance(dt_val, (datetime.date, datetime.datetime)):
-        return dt_val.strftime("%d.%m.%Y")
-    return str(dt_val)
+def load_data_from_sheets():
+    try:
+        gc = get_gspread_client()
+        # Google E-Tablo adıyla açıyoruz
+        sh = gc.open("Mikrofiliz_Verileri")
+        sheets = {}
+        for ws in sh.worksheets():
+            rows = ws.get_all_values()
+            if rows:
+                clean_prod = [r for r in rows[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
+                sheets[ws.title] = [rows[0]] + clean_prod
+        if sheets:
+            return sheets
+    except Exception as e:
+        st.sidebar.warning(f"Google Sheets yüklenemedi: {e}")
 
-def load_excel_data():
-    sheets = {}
-    if os.path.exists(EXCEL_FILE):
-        try:
-            wb = openpyxl.load_workbook(EXCEL_FILE, data_only=True)
-            for s_name in wb.sheetnames:
-                ws = wb[s_name]
-                rows_data = []
-                for row in ws.iter_rows(values_only=True):
-                    row_vals = [str(cell) if cell is not None else "" for cell in row]
-                    if any(row_vals):
-                        rows_data.append(row_vals)
-                if rows_data:
-                    clean_prod = [r for r in rows_data[1:] if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim"]
-                    sheets[s_name] = [rows_data[0]] + clean_prod
-        except Exception as e:
-            st.error(f"Excel Okuma Hatası: {e}")
-    
-    if not sheets:
-        sheets["Parti No.1"] = [
+    # Varsayılan şablon
+    return {
+        "Parti No.1": [
             ["Ürün Adı", "Üretim Adeti", "Stoktan Çıkan", "Kalan Ürün", "Ekim Günü", "Hasat Süresi (gün)", "Hasat Tarihi", "Karanlıkta (gün)", "Işığa Çıkış Tarihi", "Not"],
             ["Amaranth Mikrofilizi", "0", "0", "0", "", "10", "", "3", "", ""],
             ["Bezelye Mikrofilizi", "0", "0", "0", "", "12", "", "4", "", ""],
             ["Roka Mikrofilizi", "0", "0", "0", "", "8", "", "3", "", ""]
         ]
-    return sheets
+    }
 
-def save_excel_data(sheets_data):
+def save_data_to_sheets(sheets_data):
     try:
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active)
+        gc = get_gspread_client()
+        sh = gc.open("Mikrofiliz_Verileri")
+        
+        existing_worksheets = {ws.title: ws for ws in sh.worksheets()}
+        
         for s_name, rows in sheets_data.items():
-            ws = wb.create_sheet(title=s_name)
-            # Toplam hesaplayarak yaz
+            if s_name in existing_worksheets:
+                ws = existing_worksheets[s_name]
+                ws.clear()
+            else:
+                ws = sh.add_worksheet(title=s_name, rows="100", cols="20")
+            
             data_rows = rows[1:]
             tot_u, tot_s, tot_k = 0.0, 0.0, 0.0
             for r in data_rows:
@@ -78,25 +93,23 @@ def save_excel_data(sheets_data):
             
             tot_row = ["Toplam Üretim", str(int(tot_u)), str(int(tot_s)), str(int(tot_k))] + [""] * (len(rows[0]) - 4)
             full_rows = [rows[0]] + data_rows + [tot_row]
+            ws.update("A1", full_rows)
+            
+        # Silinen partileri Google Sheets'ten de sil
+        for old_title, ws in existing_worksheets.items():
+            if old_title not in sheets_data and len(sh.worksheets()) > 1:
+                sh.del_worksheet(ws)
 
-            for r_idx, r_vals in enumerate(full_rows, 1):
-                for c_idx, val in enumerate(r_vals, 1):
-                    val_str = str(val).replace("💡", "").strip()
-                    try:
-                        num_v = float(val_str)
-                        ws.cell(row=r_idx, column=c_idx, value=int(num_v) if num_v.is_integer() else num_v)
-                    except:
-                        ws.cell(row=r_idx, column=c_idx, value=val_str)
-        wb.save(EXCEL_FILE)
+        st.toast("✅ Veriler Google Sheets'e kaydedildi!", icon="💾")
     except Exception as e:
-        st.error(f"Excel Kayıt Hatası: {e}")
+        st.error(f"Google Sheets Kayıt Hatası: {e}")
 
 if "sheets" not in st.session_state:
-    st.session_state.sheets = load_excel_data()
+    st.session_state.sheets = load_data_from_sheets()
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
-# SOL MENÜ: Parti Yönetimi
+# YAN MENÜ: Parti Yönetimi
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     parti_names = list(st.session_state.sheets.keys())
@@ -112,21 +125,20 @@ with st.sidebar:
             first_sheet = st.session_state.sheets[parti_names[0]]
             new_rows = [first_sheet[0][:]]
             for r in first_sheet[1:]:
-                # Ürün adı ve karanlık/hasat sürelerini koru, miktarları ve tarihleri sıfırla
                 tmpl = [r[0], "0", "0", "0", "", r[5] if len(r)>5 else "10", "", r[7] if len(r)>7 else "3", "", ""]
                 new_rows.append(tmpl)
             st.session_state.sheets[new_name] = new_rows
-            save_excel_data(st.session_state.sheets)
+            save_data_to_sheets(st.session_state.sheets)
             st.rerun()
 
     with col_p2:
         if len(parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
                 del st.session_state.sheets[selected_parti]
-                save_excel_data(st.session_state.sheets)
+                save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
 
-# ANA TABLO VE RENKLENDİRME
+# ANA TABLO
 rows = st.session_state.sheets.get(selected_parti, [])
 if rows:
     headers = rows[0]
@@ -182,7 +194,7 @@ if rows:
             "Not": not_str
         })
 
-    # Toplam Satırını Tabloya Ekle
+    # Toplam Satırı
     table_data.append({
         "Durum": "📊 TOPLAM",
         "Ürün Adı": "Toplam Üretim",
@@ -239,6 +251,6 @@ if rows:
             e_not
         ]
         st.session_state.sheets[selected_parti][idx + 1] = updated
-        save_excel_data(st.session_state.sheets)
+        save_data_to_sheets(st.session_state.sheets)
         st.success(f"'{selected_urun}' güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
         st.rerun()
