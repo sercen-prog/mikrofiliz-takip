@@ -187,10 +187,14 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
-# 🔔 GÜNLÜK GÖREV VE UYARI PANELİ (Işığa Çıkarılacaklar & Hasat Zamanı)
+# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ
 today = datetime.date.today()
-needs_light = []
-needs_harvest = []
+yesterday = today - datetime.timedelta(days=1)
+tomorrow = today + datetime.timedelta(days=1)
+
+dun_islem = []
+bugun_islem = []
+yarin_islem = []
 
 for p_name, p_rows in st.session_state.sheets.items():
     for r in p_rows[1:]:
@@ -205,20 +209,46 @@ for p_name, p_rows in st.session_state.sheets.items():
                 isik_dt = parse_tr_date(isik_str)
                 hasat_dt = parse_tr_date(hasat_str)
 
-                if hasat_dt and hasat_dt <= today:
-                    needs_harvest.append(f"🟢 **{u_name}** ({p_name}) - {int(u_adet)} Adet - Hasat Tarihi: {format_date_tr(hasat_dt)}")
-                elif isik_dt and isik_dt <= today:
-                    needs_light.append(f"🟡 **{u_name}** ({p_name}) - {int(u_adet)} Adet - Işığa Çıkış: {format_date_tr(isik_dt)}")
+                # DÜN (Gecikenler)
+                if hasat_dt == yesterday:
+                    dun_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilmeliydi")
+                elif isik_dt == yesterday:
+                    dun_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılmalıydı")
 
-if needs_light or needs_harvest:
-    st.markdown("### 🔔 Bugünün Bildirimleri ve Görevleri")
-    col_n1, col_n2 = st.columns(2)
-    with col_n1:
-        if needs_light:
-            st.warning("💡 **Işığa Çıkarılması Gerekenler:**\n\n" + "\n\n".join(needs_light))
-    with col_n2:
-        if needs_harvest:
-            st.success("✂️ **Hasat Edilmesi Gerekenler:**\n\n" + "\n\n".join(needs_harvest))
+                # BUGÜN
+                if hasat_dt == today:
+                    bugun_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilecek")
+                elif isik_dt == today:
+                    bugun_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılacak")
+
+                # YARIN
+                if hasat_dt == tomorrow:
+                    yarin_islem.append(f"✂️ **{u_name}** ({p_name}) - {int(u_adet)} Adet Hasat Edilecek")
+                elif isik_dt == tomorrow:
+                    yarin_islem.append(f"💡 **{u_name}** ({p_name}) - {int(u_adet)} Adet Işığa Çıkarılacak")
+
+if dun_islem or bugun_islem or yarin_islem:
+    st.markdown("### 🔔 Görev & Takip Paneli")
+    col_d, col_b, col_y = st.columns(3)
+    
+    with col_d:
+        if dun_islem:
+            st.error("🔴 **DÜN (Gecikenler):**\n\n" + "\n\n".join(dun_islem))
+        else:
+            st.info("🔴 **DÜN:**\nGeciken işlem yok.")
+
+    with col_b:
+        if bugun_islem:
+            st.warning("🟡 **BUGÜN (Yapılacaklar):**\n\n" + "\n\n".join(bugun_islem))
+        else:
+            st.success("🟡 **BUGÜN:**\nAcil işlem yok.")
+
+    with col_y:
+        if yarin_islem:
+            st.info("🔵 **YARIN (Yaklaşanlar):**\n\n" + "\n\n".join(yarin_islem))
+        else:
+            st.info("🔵 **YARIN:**\nPlanlı işlem yok.")
+            
     st.markdown("---")
 
 # YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
