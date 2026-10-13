@@ -40,29 +40,6 @@ def safe_int(val):
     except:
         return 0
 
-def get_default_sheet_data():
-    rows = [HEADERS]
-    for p in DEFAULT_PRODUCTS:
-        rows.append([p, "0", "0", "0", "0", "", "", "10", "", "3", "", ""])
-    return {"Parti No.1": rows}
-
-# Google Sheets Bağlantı Kurulumu
-@st.cache_resource
-def get_gspread_client():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    if "gcp_json" in st.secrets:
-        creds_dict = json.loads(st.secrets["gcp_json"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    elif "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    else:
-        raise ValueError("Google Service Account anahtarı Streamlit Secrets içinde bulunamadı!")
-    return gspread.authorize(creds)
-
 def parse_tr_date(dt_str):
     if not dt_str: return None
     dt_str = str(dt_str).replace("💡", "").strip()
@@ -85,6 +62,29 @@ def format_date_tr(dt_val):
     if parsed:
         return parsed.strftime("%d.%m.%Y")
     return str(dt_val)
+
+def get_default_sheet_data():
+    rows = [HEADERS]
+    for p in DEFAULT_PRODUCTS:
+        rows.append([p, "0", "0", "0", "0", "", "", "10", "", "3", "", ""])
+    return {"Parti No.1": rows}
+
+# Google Sheets Bağlantı Kurulumu
+@st.cache_resource
+def get_gspread_client():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    if "gcp_json" in st.secrets:
+        creds_dict = json.loads(st.secrets["gcp_json"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    elif "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    else:
+        raise ValueError("Google Service Account anahtarı Streamlit Secrets içinde bulunamadı!")
+    return gspread.authorize(creds)
 
 def load_data_from_sheets():
     try:
@@ -269,7 +269,7 @@ if dun_islem or bugun_islem or yarin_islem:
             
     st.markdown("---")
 
-# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ (EN ÜST BÖLÜM)
+# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ
 with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
     col_s1, col_s2, col_s3 = st.columns([1, 1, 1.2])
     
@@ -380,7 +380,6 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                     })
 
                 if musteri and s_cikan > 0:
-                    # Müşteri parçalama analizi (sadece metin içeren isimleri ayrıştırır)
                     for m_item in musteri.split(","):
                         m_item = m_item.strip()
                         if "(" in m_item and ")" in m_item:
@@ -458,7 +457,7 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    st.header("🧹 Çöp (Fire) Temizleme")
+    st.header("🧹 Çöp (Fire) Sıfırlama")
     if st.button("🗑️ Çöpe Atılan (Fire) Verileri 0 Yap", use_container_width=True):
         for p_key, p_val in st.session_state.sheets.items():
             for r_idx in range(1, len(p_val)):
@@ -466,7 +465,7 @@ with st.sidebar:
                 if len(r) > 4:
                     u_val = safe_int(r[1])
                     satilan_val = safe_int(r[2])
-                    r[3] = "0" # Fire tamamen 0 yapılır
+                    r[3] = "0" # Fire 0 yapılır
                     r[4] = str(max(0, u_val - satilan_val)) # Kalan tekrar hesaplanır
         save_data_to_sheets(st.session_state.sheets)
         st.success("Tüm çöpe atılan (fire) verileri 0 yapıldı ve kalan stoklar güncellendi!")
