@@ -215,21 +215,20 @@ def export_sheets_to_excel(sheets_data):
     return buffer
 
 def reset_single_parti(parti_name):
-    """Sadece seçilen bir partinin verilerini sıfırlar"""
     if parti_name in st.session_state.sheets:
         rows = st.session_state.sheets[parti_name]
         for r_idx in range(1, len(rows)):
             r = rows[r_idx]
             if len(r) > 0 and r[0] != "Toplam Üretim":
-                r[1] = "0"  # Üretim
-                r[2] = "0"  # Satılan
-                r[3] = "0"  # Fire
-                r[4] = "0"  # Kalan
-                r[5] = ""   # Müşteri
-                r[6] = ""   # Ekim Günü
-                r[8] = ""   # Hasat Tarihi
-                r[10] = ""  # Işığa Çıkış
-                r[11] = ""  # Not
+                r[1] = "0"
+                r[2] = "0"
+                r[3] = "0"
+                r[4] = "0"
+                r[5] = ""
+                r[6] = ""
+                r[8] = ""
+                r[10] = ""
+                r[11] = ""
         save_data_to_sheets(st.session_state.sheets)
 
 if "sheets" not in st.session_state:
@@ -557,8 +556,18 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
 
 st.markdown("---")
 
-# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ
+# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ (TARİH FİLTRELİ)
 with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu (Aktif Partiler)", expanded=False):
+    st.markdown("#### 📅 Tarih Aralığı Filtresi (Ekim Tarihine Göre)")
+    col_dr1, col_dr2, col_dr3 = st.columns([1, 1, 1])
+    
+    with col_dr1:
+        start_date_filter = st.date_input("Başlangıç Tarihi", datetime.date.today() - datetime.timedelta(days=30), format="DD.MM.YYYY", key="report_start_date")
+    with col_dr2:
+        end_date_filter = st.date_input("Bitiş Tarihi", datetime.date.today() + datetime.timedelta(days=30), format="DD.MM.YYYY", key="report_end_date")
+    with col_dr3:
+        use_date_filter = st.checkbox("Tarih Filtresini Uygula", value=False, key="report_use_date_filter")
+
     report_list = []
     customer_sales = {}
     tot_global_u, tot_global_s, tot_global_f, tot_global_k = 0, 0, 0, 0
@@ -573,6 +582,12 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                 fire = safe_int(r[3])
                 kalan = safe_int(r[4])
                 musteri = r[5]
+                ekim_dt = parse_tr_date(r[6])
+
+                # Tarih Filtresi Kontrolü
+                if use_date_filter:
+                    if not ekim_dt or not (start_date_filter <= ekim_dt <= end_date_filter):
+                        continue
 
                 tot_global_u += u_adet
                 tot_global_s += s_cikan
@@ -601,7 +616,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                             customer_sales[m_item] = customer_sales.get(m_item, 0) + s_cikan
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🌱 Toplam Üretim", f"{tot_global_u} Adet")
+    m1.metric("🌱 Seçilen Aralıkta Üretim", f"{tot_global_u} Adet")
     m2.metric("🛍️ Satılan / Çıkan", f"{tot_global_s} Adet")
     m3.metric("🗑️ Çöpe Atılan (Fire)", f"{tot_global_f} Adet")
     m4.metric("🛒 Depodaki Kalan", f"{tot_global_k} Adet")
@@ -615,7 +630,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
             st.markdown("#### 📈 Ürün Bazlı Üretim, Satış, Fire ve Stok Dağılımı")
             st.bar_chart(df_grouped.set_index("Ürün"))
         else:
-            st.info("Henüz analiz edilecek veri girilmedi.")
+            st.info("Seçilen tarih aralığında gösterilecek veri bulunamadı.")
 
     with col_g2:
         st.markdown("#### 🚚 Müşteri / Satış Noktası Dağılımı")
@@ -623,7 +638,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
             df_cust = pd.DataFrame(list(customer_sales.items()), columns=["Müşteri / Yer", "Satılan Adet"]).sort_values(by="Satılan Adet", ascending=False)
             st.dataframe(df_cust, hide_index=True, use_container_width=True)
         else:
-            st.info("Henüz müşterilere yapılan satış kaydı girilmedi.")
+            st.info("Seçilen aralıkta müşteri satış kaydı girilmedi.")
 
 st.markdown("---")
 
