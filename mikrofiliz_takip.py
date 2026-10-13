@@ -8,39 +8,39 @@ import pandas as pd
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
-    page_title="🌱 Mikrofiliz Üretim, Satış ve Fire Takip",
+    page_title="🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip",
     page_icon="🌱",
     layout="wide"
 )
 
-# Orijinal Excel Şablon Verileri
+# Orijinal Excel Şablon Verileri ve Varsayılan Tohum Gramajları (1 Viyol İçin Gramaj)
 ORIGINAL_PRODUCT_TEMPLATES = [
-    ("Amaranth", "10", "3"),
-    ("Bezelye", "12", "4"),
-    ("Fesleğen İtalyan (İntfa)", "18", "5"),
-    ("Havuç", "22", "5"),
-    ("Kişniş", "22", "5"),
-    ("Reyhan", "18", "5"),
-    ("Mor Lahana", "9", "3"),
-    ("Pembe Turp", "9", "3"),
-    ("Rambo Turp Mor", "9", "3"),
-    ("Roka", "9", "3"),
-    ("Brokoli", "9", "3"),
-    ("Hardal (Mizuna)", "9", "3"),
-    ("Beyaz Turp", "9", "3"),
-    ("Fesleğen (Thai)", "18", "5"),
-    ("Hodan", "12", "3"),
-    ("Çemen", "10", "3"),
-    ("Frenk soğanı", "14", "5"),
-    ("Kırmızı Pancar", "12", "3"),
-    ("Maş Fasulyesi", "10", "3"),
-    ("Marul", "12", "3"),
-    ("Kuzu kulağı", "18", "5"),
-    ("Kırmızı Damarlı Kuzukulağı", "18", "5"),
-    ("Ayçekirdeği", "12", "3"),
-    ("Mor Alabaş", "10", "3"),
-    ("Kara lahana", "10", "3"),
-    ("Tere", "8", "3")
+    ("Amaranth", "10", "3", 5),
+    ("Bezelye", "12", "4", 150),
+    ("Fesleğen İtalyan (İntfa)", "18", "5", 10),
+    ("Havuç", "22", "5", 8),
+    ("Kişniş", "22", "5", 25),
+    ("Reyhan", "18", "5", 10),
+    ("Mor Lahana", "9", "3", 12),
+    ("Pembe Turp", "9", "3", 30),
+    ("Rambo Turp Mor", "9", "3", 30),
+    ("Roka", "9", "3", 12),
+    ("Brokoli", "9", "3", 12),
+    ("Hardal (Mizuna)", "9", "3", 12),
+    ("Beyaz Turp", "9", "3", 30),
+    ("Fesleğen (Thai)", "18", "5", 10),
+    ("Hodan", "12", "3", 40),
+    ("Çemen", "10", "3", 35),
+    ("Frenk soğanı", "14", "5", 15),
+    ("Kırmızı Pancar", "12", "3", 40),
+    ("Maş Fasulyesi", "10", "3", 100),
+    ("Marul", "12", "3", 8),
+    ("Kuzu kulağı", "18", "5", 8),
+    ("Kırmızı Damarlı Kuzukulağı", "18", "5", 8),
+    ("Ayçekirdeği", "12", "3", 120),
+    ("Mor Alabaş", "10", "3", 12),
+    ("Kara lahana", "10", "3", 12),
+    ("Tere", "8", "3", 12)
 ]
 
 DEFAULT_CUSTOMERS = [
@@ -60,6 +60,14 @@ def safe_int(val):
         return int(float(val_str))
     except:
         return 0
+
+def safe_float(val):
+    if not val: return 0.0
+    try:
+        val_str = str(val).replace("💡", "").strip()
+        return float(val_str)
+    except:
+        return 0.0
 
 def parse_tr_date(dt_str):
     if not dt_str: return None
@@ -86,7 +94,7 @@ def format_date_tr(dt_val):
 
 def get_clean_empty_sheet_data():
     rows = [HEADERS]
-    for name, hasat, kar in ORIGINAL_PRODUCT_TEMPLATES:
+    for name, hasat, kar, _ in ORIGINAL_PRODUCT_TEMPLATES:
         rows.append([name, "0", "0", "0", "0", "", "", hasat, "", kar, "", ""])
     return {"Parti No.1": rows}
 
@@ -240,6 +248,14 @@ if "archived_partis" not in st.session_state:
 if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
+# Tohum Ayarları ve Stok Durumu (Session State)
+if "seed_config" not in st.session_state:
+    # {urun_adi: {"total_stock": float(gram), "per_unit": float(gram)}}
+    st.session_state.seed_config = {
+        name: {"total_stock": 1000.0, "per_unit": float(gram_unit)} 
+        for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES
+    }
+
 all_parti_names = list(st.session_state.sheets.keys())
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
@@ -257,7 +273,7 @@ if not active_parti_names:
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
 
-st.title("🌱 Mikrofiliz Üretim, Satış ve Fire Takip Sistemi")
+st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -275,15 +291,18 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             new_p_name = st.text_input("Ürün Adı", key="add_new_p_name")
             new_p_hasat = st.number_input("Hasat Süresi (gün)", min_value=1, value=10, key="add_new_p_hasat")
             new_p_kar = st.number_input("Karanlıkta Kalma (gün)", min_value=1, value=3, key="add_new_p_kar")
+            new_p_gram = st.number_input("1 Viyol/Kap İçin Tohum (gram)", min_value=1.0, value=20.0, step=1.0, key="add_new_p_gram")
             
             if st.button("🌱 Yeni Ürünü Ekle", use_container_width=True):
                 if new_p_name.strip() and new_p_name.strip() not in current_prods:
+                    p_name_clean = new_p_name.strip()
                     for p_key in st.session_state.sheets.keys():
                         st.session_state.sheets[p_key].append([
-                            new_p_name.strip(), "0", "0", "0", "0", "", "", str(new_p_hasat), "", str(new_p_kar), "", ""
+                            p_name_clean, "0", "0", "0", "0", "", "", str(new_p_hasat), "", str(new_p_kar), "", ""
                         ])
+                    st.session_state.seed_config[p_name_clean] = {"total_stock": 1000.0, "per_unit": float(new_p_gram)}
                     save_data_to_sheets(st.session_state.sheets)
-                    st.success(f"'{new_p_name.strip()}' tüm partilere başarıyla eklendi!")
+                    st.success(f"'{p_name_clean}' tüm partilere ve Tohum Takip Sistemine eklendi!")
                     st.rerun()
                 else:
                     st.error("Lütfen geçerli veya listede bulunmayan bir ürün adı girin.")
@@ -313,6 +332,8 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                 if st.button("🗑️ Ürünü Sil", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
                         st.session_state.sheets[p_key] = [r for r in st.session_state.sheets[p_key] if len(r)==0 or r[0] != edit_p_select]
+                    if edit_p_select in st.session_state.seed_config:
+                        del st.session_state.seed_config[edit_p_select]
                     save_data_to_sheets(st.session_state.sheets)
                     st.success(f"'{edit_p_select}' sistemden silindi!")
                     st.rerun()
@@ -359,6 +380,73 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             reset_single_parti(target_reset_parti)
             st.success(f"'{target_reset_parti}' partisine ait tüm veriler sıfırlandı!")
             st.rerun()
+
+st.markdown("---")
+
+# 🛒 TOHUM STOK VE ÜRETİM KAPASİTESİ TAKİP MODÜLÜ
+with st.expander("🛒 Tohum Stok Miktarları ve Üretim Kapasitesi Takibi", expanded=True):
+    # Tüm Partilerdeki Ürün Bazlı Toplam Üretim Adetlerini Hesapla
+    total_production_by_product = {}
+    for p_name in active_parti_names:
+        for r in st.session_state.sheets.get(p_name, [])[1:]:
+            if len(r) > 0 and r[0] != "Toplam Üretim":
+                u_n = r[0]
+                total_production_by_product[u_n] = total_production_by_product.get(u_n, 0) + safe_int(r[1])
+
+    first_p_rows = st.session_state.sheets[all_parti_names[0]][1:]
+    all_current_prods = [r[0] for r in first_p_rows if len(r)>0 and r[0] != "Toplam Üretim"]
+
+    # Eksik ürün varsa seed_config içine ekle
+    for p in all_current_prods:
+        if p not in st.session_state.seed_config:
+            st.session_state.seed_config[p] = {"total_stock": 1000.0, "per_unit": 20.0}
+
+    col_st1, col_st2 = st.columns([1, 2])
+
+    with col_st1:
+        st.markdown("#### ✏️ Tohum Stoğu & Gramaj Düzenle")
+        selected_seed_prod = st.selectbox("Düzenlenecek Ürün Tohumu", all_current_prods, key="seed_edit_select")
+        
+        cur_tot_stock = st.session_state.seed_config[selected_seed_prod]["total_stock"]
+        cur_per_unit = st.session_state.seed_config[selected_seed_prod]["per_unit"]
+
+        new_tot_stock = st.number_input("Toplam Depo Stoğu (Gram)", min_value=0.0, value=cur_tot_stock, step=100.0, key="seed_input_tot_stock")
+        new_per_unit = st.number_input("1 Viyol İçin Harcanan Tohum (Gram)", min_value=0.1, value=cur_per_unit, step=1.0, key="seed_input_per_unit")
+
+        if st.button("💾 Tohum Bilgilerini Kaydet", use_container_width=True):
+            st.session_state.seed_config[selected_seed_prod]["total_stock"] = new_tot_stock
+            st.session_state.seed_config[selected_seed_prod]["per_unit"] = new_per_unit
+            st.success(f"'{selected_seed_prod}' tohum stok bilgileri güncellendi!")
+            st.rerun()
+
+    with col_st2:
+        st.markdown("#### 📋 Tohum Stoğu & Yapılabilecek Üretim Tablosu")
+        seed_table_data = []
+
+        for p in all_current_prods:
+            cfg = st.session_state.seed_config.get(p, {"total_stock": 1000.0, "per_unit": 20.0})
+            tot_stk = cfg["total_stock"]
+            unit_gram = cfg["per_unit"]
+            
+            prod_cnt = total_production_by_product.get(p, 0)
+            used_gram = prod_cnt * unit_gram
+            rem_gram = max(0.0, tot_stk - used_gram)
+            
+            # Kalan Tohumla Yapılabilecek Üretim Adeti
+            possible_prod = int(rem_gram // unit_gram) if unit_gram > 0 else 0
+
+            seed_table_data.append({
+                "Ürün Adı": p,
+                "Toplam Depo Stoğu (g)": f"{tot_stk:.0f} g",
+                "1 Viyol İçin (g)": f"{unit_gram:.1f} g",
+                "Toplam Ekilen": f"{prod_cnt} Adet",
+                "Harcanan Tohum": f"{used_gram:.0f} g",
+                "Kalan Tohum": f"{rem_gram:.0f} g",
+                "🌱 Yapılabilecek Üretim Potansiyeli": f"{possible_prod} Adet Viyol"
+            })
+
+        df_seed = pd.DataFrame(seed_table_data)
+        st.dataframe(df_seed, hide_index=True, use_container_width=True)
 
 st.markdown("---")
 
@@ -584,7 +672,6 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                 musteri = r[5]
                 ekim_dt = parse_tr_date(r[6])
 
-                # Tarih Filtresi Kontrolü
                 if use_date_filter:
                     if not ekim_dt or not (start_date_filter <= ekim_dt <= end_date_filter):
                         continue
