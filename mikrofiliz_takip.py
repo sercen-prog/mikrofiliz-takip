@@ -187,6 +187,40 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
 
 st.title("🌱 Mikrofiliz Üretim ve Stok Takip Sistemi")
 
+# 🔔 GÜNLÜK GÖREV VE UYARI PANELİ (Işığa Çıkarılacaklar & Hasat Zamanı)
+today = datetime.date.today()
+needs_light = []
+needs_harvest = []
+
+for p_name, p_rows in st.session_state.sheets.items():
+    for r in p_rows[1:]:
+        if len(r) > 0:
+            u_name = r[0]
+            u_adet = float(r[1]) if len(r)>1 and r[1] else 0.0
+            ekim_str = r[4] if len(r)>4 else ""
+            hasat_str = r[6] if len(r)>6 else ""
+            isik_str = r[8] if len(r)>8 else ""
+
+            if u_adet > 0 and ekim_str:
+                isik_dt = parse_tr_date(isik_str)
+                hasat_dt = parse_tr_date(hasat_str)
+
+                if hasat_dt and hasat_dt <= today:
+                    needs_harvest.append(f"🟢 **{u_name}** ({p_name}) - {int(u_adet)} Adet - Hasat Tarihi: {format_date_tr(hasat_dt)}")
+                elif isik_dt and isik_dt <= today:
+                    needs_light.append(f"🟡 **{u_name}** ({p_name}) - {int(u_adet)} Adet - Işığa Çıkış: {format_date_tr(isik_dt)}")
+
+if needs_light or needs_harvest:
+    st.markdown("### 🔔 Bugünün Bildirimleri ve Görevleri")
+    col_n1, col_n2 = st.columns(2)
+    with col_n1:
+        if needs_light:
+            st.warning("💡 **Işığa Çıkarılması Gerekenler:**\n\n" + "\n\n".join(needs_light))
+    with col_n2:
+        if needs_harvest:
+            st.success("✂️ **Hasat Edilmesi Gerekenler:**\n\n" + "\n\n".join(needs_harvest))
+    st.markdown("---")
+
 # YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
@@ -269,8 +303,6 @@ if rows:
             "🔍 Ürün Bazlı İnceleme (Tüm Partiler Genelinde):",
             ["Tüm Tabloyu Göster (Aktif Parti)"] + all_product_names
         )
-
-    today = datetime.date.today()
 
     # EĞER BELİRLİ BİR ÜRÜN SEÇİLDİYSE
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
@@ -407,7 +439,7 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ (ÜRÜN BAZLI VE DİNAMİK PARTİ DEĞİŞİMİ)
+    # HIZLI DÜZENLEME PANELİ
     st.markdown("---")
     st.subheader("⚡ Hızlı İşlem Paneli")
 
@@ -424,7 +456,6 @@ if rows:
             key="quick_parti_select"
         )
 
-    # Seçilen Parti ve Seçilen Ürünün Verilerini Getir
     target_sheet_rows = st.session_state.sheets.get(target_parti, [])[1:]
     idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == selected_urun), None)
 
