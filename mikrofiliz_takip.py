@@ -217,30 +217,44 @@ def export_sheets_to_excel(sheets_data):
 if "sheets" not in st.session_state:
     st.session_state.sheets = load_data_from_sheets()
 
+if "archived_partis" not in st.session_state:
+    st.session_state.archived_partis = []
+
 if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
-parti_names = list(st.session_state.sheets.keys())
+# Aktif ve Arşivdeki Partileri Ayrıştır
+all_parti_names = list(st.session_state.sheets.keys())
+active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
-if "active_parti" not in st.session_state or st.session_state.active_parti not in parti_names:
-    st.session_state.active_parti = parti_names[0]
+if not active_parti_names:
+    # Eğer tüm partiler arşivdeyse veya hiç aktif parti yoksa
+    first_sheet_rows = list(st.session_state.sheets.values())[0][1:]
+    new_rows = [HEADERS]
+    for r in first_sheet_rows:
+        if len(r)>0 and r[0] != "Toplam Üretim":
+            new_rows.append([r[0], "0", "0", "0", "0", "", "", r[7] if len(r)>7 else "10", "", r[9] if len(r)>9 else "3", "", ""])
+    st.session_state.sheets["Parti No.1"] = new_rows
+    if "Parti No.1" in st.session_state.archived_partis:
+        st.session_state.archived_partis.remove("Parti No.1")
+    active_parti_names = ["Parti No.1"]
+
+if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
+    st.session_state.active_parti = active_parti_names[0]
 
 st.title("🌱 Mikrofiliz Üretim, Satış ve Fire Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
-with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Parti Düzenleme)", expanded=False):
-    tab_prod, tab_cust, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "🧹 Veri & Parti Yönetimi"])
+with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti)", expanded=False):
+    tab_prod, tab_cust, tab_arch, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "📦 Arşivlenmiş Partiler", "🧹 Veri Sıfırlama"])
     
     # 1. ÜRÜN YÖNETİMİ TABI
     with tab_prod:
         st.markdown("#### 🌱 Ürün Listesi ve Süre Düzenleme")
-        
-        # Mevcut Tüm Ürün İsimleri
-        first_p_rows = st.session_state.sheets[parti_names[0]][1:]
+        first_p_rows = st.session_state.sheets[all_parti_names[0]][1:]
         current_prods = [r[0] for r in first_p_rows if len(r)>0 and r[0] != "Toplam Üretim"]
         
         col_p1, col_p2 = st.columns(2)
-        
         with col_p1:
             st.markdown("##### ➕ Yeni Ürün Ekle")
             new_p_name = st.text_input("Ürün Adı", key="add_new_p_name")
@@ -262,8 +276,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Parti Düzenleme
         with col_p2:
             st.markdown("##### ✏️ Ürün Sürelerini Güncelle / Sil")
             edit_p_select = st.selectbox("Düzenlenecek / Silinecek Ürün", current_prods, key="edit_p_select")
-            
-            # Seçilen Ürünün Mevcut Süreleri
             ref_row = next((r for r in first_p_rows if r[0] == edit_p_select), None)
             cur_hasat = safe_int(ref_row[7]) if ref_row and len(ref_row)>7 else 10
             cur_kar = safe_int(ref_row[9]) if ref_row and len(ref_row)>9 else 3
@@ -294,7 +306,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Parti Düzenleme
     with tab_cust:
         st.markdown("#### 🚚 Müşteri / Satış Noktası Listesi")
         col_c1, col_c2 = st.columns(2)
-        
         with col_c1:
             st.markdown("##### ➕ Yeni Müşteri Ekle")
             add_c_name = st.text_input("Müşteri / Restoran Adı", key="tab_add_cust_input")
@@ -312,11 +323,25 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Parti Düzenleme
                 st.success(f"'{del_c_select}' müşteri listesinden çıkarıldı!")
                 st.rerun()
 
-    # 3. SİSTEM & VERİ YÖNETİMİ TABI
+    # 3. ARŞİVLENMİŞ PARTİLER TABI
+    with tab_arch:
+        st.markdown("#### 📦 Arşivdeki Partiler")
+        if st.session_state.archived_partis:
+            unarchive_target = st.selectbox("Arşivden Çıkarılacak Parti Seçin", st.session_state.archived_partis, key="unarchive_select")
+            if st.button("🔄 Partiyi Arşivden Çıkar (Aktif Yap)", use_container_width=True):
+                st.session_state.archived_partis.remove(unarchive_target)
+                st.session_state.active_parti = unarchive_target
+                st.success(f"'{unarchive_target}' başarıyla aktif partilere geri yüklendi!")
+                st.rerun()
+        else:
+            st.info("Henüz arşive kaldırılmış bir parti bulunmuyor.")
+
+    # 4. SİSTEM & VERİ YÖNETİMİ TABI
     with tab_sys:
         st.markdown("#### 🧹 Veri ve Şablon Sıfırlama")
         if st.button("🔄 Tüm Üretim ve Stok Verilerini Sıfırla (0 Yap)", use_container_width=True, type="primary"):
             st.session_state.sheets = get_clean_empty_sheet_data()
+            st.session_state.archived_partis = []
             st.session_state.active_parti = "Parti No.1"
             save_data_to_sheets(st.session_state.sheets)
             st.success("Tüm veriler başarıyla 0 yapıldı ve sıfırlandı!")
@@ -324,14 +349,14 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Parti Düzenleme
 
 st.markdown("---")
 
-# YAN MENÜ: Parti Seçimi & Excel
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma & Excel
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
     selected_sidebar_parti = st.selectbox(
         "Aktif Parti Seçin", 
-        parti_names, 
-        index=parti_names.index(st.session_state.active_parti),
+        active_parti_names, 
+        index=active_parti_names.index(st.session_state.active_parti) if st.session_state.active_parti in active_parti_names else 0,
         key="sb_parti_select"
     )
     if selected_sidebar_parti != st.session_state.active_parti:
@@ -341,11 +366,11 @@ with st.sidebar:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         if st.button("➕ Yeni Parti"):
-            nums = [int(p.replace("Parti No.", "").strip()) for p in parti_names if p.startswith("Parti No.")]
+            nums = [int(p.replace("Parti No.", "").strip()) for p in all_parti_names if p.startswith("Parti No.")]
             next_num = max(nums) + 1 if nums else 1
             new_name = f"Parti No.{next_num}"
             
-            first_sheet_rows = st.session_state.sheets[parti_names[0]][1:]
+            first_sheet_rows = st.session_state.sheets[all_parti_names[0]][1:]
             new_rows = [HEADERS]
             for r in first_sheet_rows:
                 if len(r)>0 and r[0] != "Toplam Üretim":
@@ -356,12 +381,23 @@ with st.sidebar:
             st.rerun()
 
     with col_p2:
-        if len(parti_names) > 1:
+        if len(active_parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
                 del st.session_state.sheets[st.session_state.active_parti]
-                st.session_state.active_parti = list(st.session_state.sheets.keys())[0]
+                active_parti_names = [p for p in list(st.session_state.sheets.keys()) if p not in st.session_state.archived_partis]
+                st.session_state.active_parti = active_parti_names[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button(f"📦 '{st.session_state.active_parti}' Partisini Arşive Kaldır", use_container_width=True):
+        if st.session_state.active_parti not in st.session_state.archived_partis:
+            st.session_state.archived_partis.append(st.session_state.active_parti)
+            st.success(f"'{st.session_state.active_parti}' arşive kaldırıldı!")
+            active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
+            if active_parti_names:
+                st.session_state.active_parti = active_parti_names[0]
+            st.rerun()
 
     st.markdown("---")
     st.header("📥 Excel Olarak İndir")
@@ -374,7 +410,7 @@ with st.sidebar:
         use_container_width=True
     )
 
-# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ
+# 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ (Sadece Aktif Partiler)
 today = datetime.date.today()
 yesterday = today - datetime.timedelta(days=1)
 tomorrow = today + datetime.timedelta(days=1)
@@ -387,7 +423,8 @@ dun_islem = []
 bugun_islem = []
 yarin_islem = []
 
-for p_name, p_rows in st.session_state.sheets.items():
+for p_name in active_parti_names:
+    p_rows = st.session_state.sheets.get(p_name, [])
     for r in p_rows[1:]:
         if len(r) > 0:
             u_name = r[0]
@@ -439,12 +476,12 @@ if dun_islem or bugun_islem or yarin_islem:
             
     st.markdown("---")
 
-# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ
+# 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ (Sadece Aktif Partiler)
 with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
     col_s1, col_s2, col_s3 = st.columns([1, 1, 1.2])
     
     with col_s1:
-        s_parti = st.selectbox("📂 Satış Yapılacak Parti", parti_names, key="sales_parti_select")
+        s_parti = st.selectbox("📂 Satış Yapılacak Parti", active_parti_names, key="sales_parti_select")
         
     s_rows = st.session_state.sheets.get(s_parti, [])[1:]
     s_prod_names = [r[0] for r in s_rows if len(r) > 0 and r[0] != "Toplam Üretim"]
@@ -505,13 +542,14 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
 
 st.markdown("---")
 
-# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ
-with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu", expanded=False):
+# 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ (Sadece Aktif Partiler)
+with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu (Aktif Partiler)", expanded=False):
     report_list = []
     customer_sales = {}
     tot_global_u, tot_global_s, tot_global_f, tot_global_k = 0, 0, 0, 0
 
-    for p_name, p_rows in st.session_state.sheets.items():
+    for p_name in active_parti_names:
+        p_rows = st.session_state.sheets.get(p_name, [])
         for r in p_rows[1:]:
             if len(r) > 0 and r[0] != "Toplam Üretim":
                 u_name = r[0]
@@ -580,22 +618,23 @@ rows = st.session_state.sheets.get(selected_parti, [])
 
 if rows:
     prod_rows = rows[1:]
-    all_product_names = sorted(list(set([r[0] for sheet in st.session_state.sheets.values() for r in sheet[1:] if len(r)>0])))
+    all_product_names = sorted(list(set([r[0] for p_k in active_parti_names for r in st.session_state.sheets[p_k][1:] if len(r)>0])))
 
     col_f1, col_f2 = st.columns([2, 1])
     with col_f1:
         selected_filter_product = st.selectbox(
-            "🔍 Ürün Bazlı İnceleme (Tüm Partiler Genelinde):",
+            "🔍 Ürün Bazlı İnceleme (Aktif Partiler Genelinde):",
             ["Tüm Tabloyu Göster (Aktif Parti)"] + all_product_names
         )
 
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
-        st.subheader(f"📊 '{selected_filter_product}' İçin Tüm Partilerin Üretim ve Satış Geçmişi")
+        st.subheader(f"📊 '{selected_filter_product}' İçin Aktif Partilerin Üretim ve Satış Geçmişi")
         
         product_history = []
         tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
 
-        for p_name, p_rows in st.session_state.sheets.items():
+        for p_name in active_parti_names:
+            p_rows = st.session_state.sheets[p_name]
             for r in p_rows[1:]:
                 if len(r) > 0 and r[0] == selected_filter_product:
                     u_adet = safe_int(r[1])
@@ -742,8 +781,8 @@ if rows:
     with col_hp2:
         target_parti = st.selectbox(
             "📂 İşlem Yapılacak Parti",
-            parti_names,
-            index=parti_names.index(selected_parti) if selected_parti in parti_names else 0,
+            active_parti_names,
+            index=active_parti_names.index(selected_parti) if selected_parti in active_parti_names else 0,
             key="quick_parti_select"
         )
 
