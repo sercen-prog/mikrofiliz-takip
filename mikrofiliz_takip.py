@@ -380,13 +380,15 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                     })
 
                 if musteri and s_cikan > 0:
+                    # Müşteri parçalama analizi (sadece metin içeren isimleri ayrıştırır)
                     for m_item in musteri.split(","):
                         m_item = m_item.strip()
                         if "(" in m_item and ")" in m_item:
                             m_name = m_item.split("(")[0].strip()
                             m_val = safe_int(m_item.split("(")[1].replace("Adet", "").replace(")", "").strip())
-                            customer_sales[m_name] = customer_sales.get(m_name, 0) + m_val
-                        elif m_item:
+                            if m_name and not m_name.isdigit():
+                                customer_sales[m_name] = customer_sales.get(m_name, 0) + m_val
+                        elif m_item and not m_item.isdigit():
                             customer_sales[m_item] = customer_sales.get(m_item, 0) + s_cikan
 
     m1, m2, m3, m4 = st.columns(4)
@@ -456,25 +458,18 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    st.header("🧹 Veri Dönüştürme & Temizleme")
-    if st.button("🗑️ Mevcut Çıkan Ürünleri Fire'ye Taşı", use_container_width=True):
+    st.header("🧹 Çöp (Fire) Temizleme")
+    if st.button("🗑️ Çöpe Atılan (Fire) Verileri 0 Yap", use_container_width=True):
         for p_key, p_val in st.session_state.sheets.items():
             for r_idx in range(1, len(p_val)):
                 r = p_val[r_idx]
                 if len(r) > 4:
                     u_val = safe_int(r[1])
-                    cikan_val = safe_int(r[2]) # Eski çıkan/satılan
-                    mevcut_fire = safe_int(r[3])
-                    
-                    yeni_fire = mevcut_fire + cikan_val
-                    
-                    r[2] = "0" # Satılan sıfırlanır
-                    r[3] = str(yeni_fire) # Fire'ye eklenir
-                    r[4] = str(max(0, u_val - yeni_fire)) # Kalan hesaplanır
-                    if len(r) > 5: r[5] = "" # Müşteri temizlenir
-                    
+                    satilan_val = safe_int(r[2])
+                    r[3] = "0" # Fire tamamen 0 yapılır
+                    r[4] = str(max(0, u_val - satilan_val)) # Kalan tekrar hesaplanır
         save_data_to_sheets(st.session_state.sheets)
-        st.success("Tüm mevcut stoktan çıkan ürünler başarıyla Fire (Çöp) sütununa taşındı!")
+        st.success("Tüm çöpe atılan (fire) verileri 0 yapıldı ve kalan stoklar güncellendi!")
         st.rerun()
 
     st.markdown("---")
