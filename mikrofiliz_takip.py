@@ -407,44 +407,71 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ
+    # HIZLI DÜZENLEME PANELİ (ÜRÜN BAZLI VE DİNAMİK PARTİ DEĞİŞİMİ)
     st.markdown("---")
     st.subheader("⚡ Hızlı İşlem Paneli")
 
-    col_hp1, col_hp2 = st.columns([1, 2])
+    col_hp1, col_hp2 = st.columns(2)
     
     with col_hp1:
+        selected_urun = st.selectbox("🌱 İşlem Yapılacak Ürün", all_product_names, key="quick_urun_select")
+
+    with col_hp2:
         target_parti = st.selectbox(
             "📂 İşlem Yapılacak Parti",
             parti_names,
-            index=parti_names.index(selected_parti),
+            index=parti_names.index(selected_parti) if selected_parti in parti_names else 0,
             key="quick_parti_select"
         )
-        if target_parti != st.session_state.active_parti:
-            st.session_state.active_parti = target_parti
-            st.rerun()
 
-    target_rows = st.session_state.sheets.get(target_parti, [])[1:]
+    # Seçilen Parti ve Seçilen Ürünün Verilerini Getir
+    target_sheet_rows = st.session_state.sheets.get(target_parti, [])[1:]
+    idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == selected_urun), None)
 
-    if target_rows:
-        with col_hp2:
-            selected_urun = st.selectbox("🌱 Düzenlemek İstediğiniz Ürünü Seçin", [r[0] for r in target_rows])
-        
-        idx = next((i for i, r in enumerate(target_rows) if r[0] == selected_urun), 0)
-        curr_r = target_rows[idx]
+    if idx is not None:
+        curr_r = target_sheet_rows[idx]
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            e_ekim = st.date_input("Ekim Tarihi (Gün/Ay/Yıl)", parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today(), format="DD.MM.YYYY")
-            e_u_adet = st.number_input("Üretim Adeti", min_value=0, value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0)
+            e_ekim = st.date_input(
+                "Ekim Tarihi (Gün/Ay/Yıl)", 
+                parse_tr_date(curr_r[4]) if len(curr_r)>4 and curr_r[4] else datetime.date.today(), 
+                format="DD.MM.YYYY",
+                key=f"input_ekim_{target_parti}_{selected_urun}"
+            )
+            e_u_adet = st.number_input(
+                "Üretim Adeti", 
+                min_value=0, 
+                value=int(float(curr_r[1])) if len(curr_r)>1 and curr_r[1] else 0,
+                key=f"input_u_adet_{target_parti}_{selected_urun}"
+            )
         with c2:
-            e_kar = st.number_input("Karanlıkta (gün)", min_value=1, value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 3)
-            e_s_cikan = st.number_input("Stoktan Çıkan", min_value=0, value=int(float(curr_r[2])) if len(curr_r)>2 and curr_r[2] else 0)
+            e_kar = st.number_input(
+                "Karanlıkta (gün)", 
+                min_value=1, 
+                value=int(float(curr_r[7])) if len(curr_r)>7 and curr_r[7] else 3,
+                key=f"input_kar_{target_parti}_{selected_urun}"
+            )
+            e_s_cikan = st.number_input(
+                "Stoktan Çıkan", 
+                min_value=0, 
+                value=int(float(curr_r[2])) if len(curr_r)>2 and curr_r[2] else 0,
+                key=f"input_s_cikan_{target_parti}_{selected_urun}"
+            )
         with c3:
-            e_has = st.number_input("Hasat Süresi (gün)", min_value=1, value=int(float(curr_r[5])) if len(curr_r)>5 and curr_r[5] else 10)
-            e_not = st.text_input("Not / Açıklama", value=curr_r[9] if len(curr_r)>9 else "")
+            e_has = st.number_input(
+                "Hasat Süresi (gün)", 
+                min_value=1, 
+                value=int(float(curr_r[5])) if len(curr_r)>5 and curr_r[5] else 10,
+                key=f"input_has_{target_parti}_{selected_urun}"
+            )
+            e_not = st.text_input(
+                "Not / Açıklama", 
+                value=curr_r[9] if len(curr_r)>9 else "",
+                key=f"input_not_{target_parti}_{selected_urun}"
+            )
 
-        if st.button("⚡ Hesapla ve Tabloya İşle", use_container_width=True):
+        if st.button(f"⚡ {selected_urun} ({target_parti}) Verilerini Kaydet", use_container_width=True):
             kalan = max(0, e_u_adet - e_s_cikan)
             isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
             hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
@@ -463,5 +490,7 @@ if rows:
             ]
             st.session_state.sheets[target_parti][idx + 1] = updated
             save_data_to_sheets(st.session_state.sheets)
-            st.success(f"'{selected_urun}' [{target_parti}] güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
+            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Işığa Çıkış: {isik_dt.strftime('%d.%m.%Y')} | Hasat: {hasat_dt.strftime('%d.%m.%Y')}")
             st.rerun()
+    else:
+        st.warning(f"'{selected_urun}' adlı ürün {target_parti} içerisinde henüz tanımlı değil.")
