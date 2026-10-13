@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Varsayılan Ürün ve Müşteri Listeleri
+# Varsayılan Ürün ve Müşteri Listeleri (Korunan İsimler)
 DEFAULT_PRODUCTS = [
     "Amaranth Mikrofilizi", "Bezelye Mikrofilizi", "İtalyan Fesleğen Mikrofilizi",
     "Havuç Mikrofilizi", "Kişniş Mikrofilizi", "Mor Reyhan Mikrofilizi",
@@ -63,7 +63,7 @@ def format_date_tr(dt_val):
         return parsed.strftime("%d.%m.%Y")
     return str(dt_val)
 
-def get_default_sheet_data():
+def get_clean_empty_sheet_data():
     rows = [HEADERS]
     for p in DEFAULT_PRODUCTS:
         rows.append([p, "0", "0", "0", "0", "", "", "10", "", "3", "", ""])
@@ -86,83 +86,6 @@ def get_gspread_client():
         raise ValueError("Google Service Account anahtarı Streamlit Secrets içinde bulunamadı!")
     return gspread.authorize(creds)
 
-def repair_and_fix_rows(rows):
-    """Google Sheets verisindeki kolon kaymalarını akıllıca onarır"""
-    if not rows or len(rows) < 1:
-        return [HEADERS]
-    
-    fixed_rows = [HEADERS]
-    for r in rows[1:]:
-        if not r or str(r[0]).strip() == "Toplam Üretim":
-            continue
-        
-        u_name = str(r[0]).strip()
-        if not u_name: continue
-
-        u_adet = safe_int(r[1]) if len(r)>1 else 0
-        s_cikan = safe_int(r[2]) if len(r)>2 else 0
-        fire = safe_int(r[3]) if len(r)>3 else 0
-        kalan = max(0, u_adet - s_cikan - fire)
-
-        # Müşteri ve Süre kontrolü
-        raw_col5 = str(r[5]).strip() if len(r)>5 else ""
-        raw_col7 = str(r[7]).strip() if len(r)>7 else ""
-        
-        musteri = ""
-        hasat_suresi = "10"
-        
-        if raw_col5.isdigit():
-            hasat_suresi = raw_col5
-        elif raw_col5:
-            musteri = raw_col5
-            
-        if raw_col7.isdigit():
-            hasat_suresi = raw_col7
-
-        # Ekim ve Hasat Tarihi Kontrolü
-        d1_str = str(r[6]).strip() if len(r)>6 else ""
-        d2_str = str(r[8]).strip() if len(r)>8 else ""
-        
-        dt1 = parse_tr_date(d1_str)
-        dt2 = parse_tr_date(d2_str)
-        
-        ekim_tarihi = ""
-        hasat_tarihi = ""
-        
-        if dt1 and dt2:
-            if dt1 <= dt2:
-                ekim_tarihi = format_date_tr(dt1)
-                hasat_tarihi = format_date_tr(dt2)
-            else:
-                ekim_tarihi = format_date_tr(dt2)
-                hasat_tarihi = format_date_tr(dt1)
-        elif dt1:
-            ekim_tarihi = format_date_tr(dt1)
-        elif dt2:
-            ekim_tarihi = format_date_tr(dt2)
-
-        # Otomatik Hasat Tarihi Hesaplama
-        if ekim_tarihi and not hasat_tarihi:
-            dt_ekim = parse_tr_date(ekim_tarihi)
-            if dt_ekim:
-                hasat_tarihi = format_date_tr(dt_ekim + datetime.timedelta(days=safe_int(hasat_suresi)))
-
-        kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip() else "3"
-        isik_tarihi = str(r[10]).strip() if len(r)>10 else ""
-        
-        if ekim_tarihi and not isik_tarihi:
-            dt_ekim = parse_tr_date(ekim_tarihi)
-            if dt_ekim:
-                isik_tarihi = format_date_tr(dt_ekim + datetime.timedelta(days=safe_int(kar_suresi)))
-
-        not_txt = str(r[11]).strip() if len(r)>11 else ""
-
-        fixed_rows.append([
-            u_name, str(u_adet), str(s_cikan), str(fire), str(kalan),
-            musteri, ekim_tarihi, str(hasat_suresi), hasat_tarihi, str(kar_suresi), isik_tarihi, not_txt
-        ])
-    return fixed_rows
-
 def load_data_from_sheets():
     try:
         gc = get_gspread_client()
@@ -171,15 +94,34 @@ def load_data_from_sheets():
         for ws in sh.worksheets():
             rows = ws.get_all_values()
             if len(rows) > 1:
-                clean_rows = repair_and_fix_rows(rows)
-                if len(clean_rows) > 1:
-                    sheets[ws.title] = clean_rows
+                clean_prod = []
+                for r in rows[1:]:
+                    if len(r) > 0 and str(r[0]).strip() != "Toplam Üretim":
+                        u_name = str(r[0]).strip()
+                        u_adet = safe_int(r[1]) if len(r)>1 else 0
+                        s_cikan = safe_int(r[2]) if len(r)>2 else 0
+                        fire = safe_int(r[3]) if len(r)>3 else 0
+                        kalan = safe_int(r[4]) if len(r)>4 else 0
+                        musteri = str(r[5]).strip() if len(r)>5 and not str(r[5]).strip().isdigit() else ""
+                        ekim_str = format_date_tr(r[6]) if len(r)>6 else ""
+                        has_suresi = str(r[7]).strip() if len(r)>7 and str(r[7]).strip().isdigit() else "10"
+                        has_tarihi = format_date_tr(r[8]) if len(r)>8 else ""
+                        kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip().isdigit() else "3"
+                        isik_tarihi = format_date_tr(r[10]) if len(r)>10 else ""
+                        not_txt = str(r[11]).strip() if len(r)>11 else ""
+
+                        clean_prod.append([
+                            u_name, str(u_adet), str(s_cikan), str(fire), str(kalan),
+                            musteri, ekim_str, has_suresi, has_tarihi, kar_suresi, isik_tarihi, not_txt
+                        ])
+                if clean_prod:
+                    sheets[ws.title] = [HEADERS] + clean_prod
         if sheets:
             return sheets
     except Exception as e:
         st.sidebar.warning(f"Google Sheets yüklenemedi: {e}")
 
-    return get_default_sheet_data()
+    return get_clean_empty_sheet_data()
 
 def save_data_to_sheets(sheets_data):
     try:
@@ -214,20 +156,6 @@ def save_data_to_sheets(sheets_data):
         st.toast("✅ Veriler Google Sheets'e kaydedildi!", icon="💾")
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
-
-def parse_excel_file(uploaded_file):
-    sheets = {}
-    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
-    for s_name in wb.sheetnames:
-        ws = wb[s_name]
-        rows_data = []
-        for row in ws.iter_rows(values_only=True):
-            row_vals = [str(cell) if cell is not None else "" for cell in row]
-            if any(row_vals):
-                rows_data.append(row_vals)
-        if len(rows_data) > 1:
-            sheets[s_name] = repair_and_fix_rows(rows_data)
-    return sheets
 
 def export_sheets_to_excel(sheets_data):
     wb = openpyxl.Workbook()
@@ -272,6 +200,75 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
     st.session_state.active_parti = parti_names[0]
 
 st.title("🌱 Mikrofiliz Üretim, Satış ve Fire Takip Sistemi")
+
+# YAN MENÜ: Parti Yönetimi & Sıfırlama
+with st.sidebar:
+    st.header("📂 Parti Yönetimi")
+    
+    selected_sidebar_parti = st.selectbox(
+        "Aktif Parti Seçin", 
+        parti_names, 
+        index=parti_names.index(st.session_state.active_parti),
+        key="sb_parti_select"
+    )
+    if selected_sidebar_parti != st.session_state.active_parti:
+        st.session_state.active_parti = selected_sidebar_parti
+        st.rerun()
+
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        if st.button("➕ Yeni Parti"):
+            nums = [int(p.replace("Parti No.", "").strip()) for p in parti_names if p.startswith("Parti No.")]
+            next_num = max(nums) + 1 if nums else 1
+            new_name = f"Parti No.{next_num}"
+            
+            first_sheet = st.session_state.sheets[parti_names[0]]
+            new_rows = [HEADERS]
+            for r in first_sheet[1:]:
+                tmpl = [r[0], "0", "0", "0", "0", "", "", r[7] if len(r)>7 else "10", "", r[9] if len(r)>9 else "3", "", ""]
+                new_rows.append(tmpl)
+            st.session_state.sheets[new_name] = new_rows
+            st.session_state.active_parti = new_name
+            save_data_to_sheets(st.session_state.sheets)
+            st.rerun()
+
+    with col_p2:
+        if len(parti_names) > 1:
+            if st.button("🗑️ Partiyi Sil"):
+                del st.session_state.sheets[st.session_state.active_parti]
+                st.session_state.active_parti = list(st.session_state.sheets.keys())[0]
+                save_data_to_sheets(st.session_state.sheets)
+                st.rerun()
+
+    st.markdown("---")
+    st.header("🧹 Sıfırlama Paneli")
+    if st.button("🔄 Tüm Üretim ve Stok Verilerini Sıfırla (0 Yap)", use_container_width=True, type="primary"):
+        for p_key, p_val in st.session_state.sheets.items():
+            for r_idx in range(1, len(p_val)):
+                r = p_val[r_idx]
+                r[1] = "0"  # Üretim
+                r[2] = "0"  # Satılan
+                r[3] = "0"  # Fire
+                r[4] = "0"  # Kalan
+                r[5] = ""   # Müşteri
+                r[6] = ""   # Ekim Günü
+                r[8] = ""   # Hasat Tarihi
+                r[10] = ""  # Işığa Çıkış
+                r[11] = ""  # Not
+        save_data_to_sheets(st.session_state.sheets)
+        st.success("Tüm veriler başarıyla 0 yapıldı ve sıfırlandı!")
+        st.rerun()
+
+    st.markdown("---")
+    st.header("📥 Excel Olarak İndir")
+    excel_buffer = export_sheets_to_excel(st.session_state.sheets)
+    st.download_button(
+        label="📊 Güncel Verileri Excel Olarak İndir",
+        data=excel_buffer,
+        file_name=f"Mikrofiliz_Uretim_Takip_{datetime.date.today().strftime('%d_%m_%Y')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
 
 # 🔔 DÜN / BUGÜN / YARIN BİLDİRİM VE GÖREV PANELİ
 today = datetime.date.today()
@@ -486,83 +483,6 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
 
 st.markdown("---")
 
-# YAN MENÜ: Parti Yönetimi, Excel İçe Aktarma & İndirme & Sıfırlama
-with st.sidebar:
-    st.header("📂 Parti Yönetimi")
-    
-    selected_sidebar_parti = st.selectbox(
-        "Aktif Parti Seçin", 
-        parti_names, 
-        index=parti_names.index(st.session_state.active_parti),
-        key="sb_parti_select"
-    )
-    if selected_sidebar_parti != st.session_state.active_parti:
-        st.session_state.active_parti = selected_sidebar_parti
-        st.rerun()
-
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        if st.button("➕ Yeni Parti"):
-            nums = [int(p.replace("Parti No.", "").strip()) for p in parti_names if p.startswith("Parti No.")]
-            next_num = max(nums) + 1 if nums else 1
-            new_name = f"Parti No.{next_num}"
-            
-            first_sheet = st.session_state.sheets[parti_names[0]]
-            new_rows = [HEADERS]
-            for r in first_sheet[1:]:
-                tmpl = [r[0], "0", "0", "0", "0", "", "", r[7] if len(r)>7 else "10", "", r[9] if len(r)>9 else "3", "", ""]
-                new_rows.append(tmpl)
-            st.session_state.sheets[new_name] = new_rows
-            st.session_state.active_parti = new_name
-            save_data_to_sheets(st.session_state.sheets)
-            st.rerun()
-
-    with col_p2:
-        if len(parti_names) > 1:
-            if st.button("🗑️ Partiyi Sil"):
-                del st.session_state.sheets[st.session_state.active_parti]
-                st.session_state.active_parti = list(st.session_state.sheets.keys())[0]
-                save_data_to_sheets(st.session_state.sheets)
-                st.rerun()
-
-    st.markdown("---")
-    st.header("🛠️ Tablo & Veri Onarma")
-    if st.button("🔧 Tablo Yapısını Onar ve Temizle", use_container_width=True):
-        for p_key in list(st.session_state.sheets.keys()):
-            st.session_state.sheets[p_key] = repair_and_fix_rows(st.session_state.sheets[p_key])
-        save_data_to_sheets(st.session_state.sheets)
-        st.success("Google Sheets tablonuzdaki tüm tarih kaymaları ve müşteri kolon hataları başarıyla düzeltildi!")
-        st.rerun()
-
-    st.markdown("---")
-    st.header("📥 Excel Olarak İndir")
-    excel_buffer = export_sheets_to_excel(st.session_state.sheets)
-    st.download_button(
-        label="📊 Güncel Verileri Excel Olarak İndir",
-        data=excel_buffer,
-        file_name=f"Mikrofiliz_Uretim_Takip_{datetime.date.today().strftime('%d_%m_%Y')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
-    )
-
-    st.markdown("---")
-    st.header("📤 Excel İçe Aktar")
-    uploaded_excel = st.file_uploader("Güncel Excel Dosyasını Yükleyin (.xlsx)", type=["xlsx"])
-    if uploaded_excel is not None:
-        if st.button("🔄 Excel Verilerini Aktar ve Kaydet", use_container_width=True):
-            try:
-                parsed_sheets = parse_excel_file(uploaded_excel)
-                if parsed_sheets:
-                    st.session_state.sheets = parsed_sheets
-                    st.session_state.active_parti = list(parsed_sheets.keys())[0]
-                    save_data_to_sheets(parsed_sheets)
-                    st.success("Excel başarıyla okundu ve Google Sheets veritabanına aktarıldı!")
-                    st.rerun()
-                else:
-                    st.error("Excel dosyasından geçerli sayfa verisi okunamadı.")
-            except Exception as e:
-                st.error(f"Excel Okuma Hatası: {e}")
-
 # ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU
 selected_parti = st.session_state.active_parti
 rows = st.session_state.sheets.get(selected_parti, [])
@@ -719,7 +639,7 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ (SADECE ÜRETİM & FİRE YÖNETİMİ)
+    # HIZLI DÜZENLEME PANELİ (EKİM & FİRE YÖNETİMİ)
     st.markdown("---")
     st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Fire Yönetimi)")
 
