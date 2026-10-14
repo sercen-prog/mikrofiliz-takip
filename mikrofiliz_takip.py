@@ -167,6 +167,8 @@ def load_data_from_sheets():
         template_dict = {p[0]: (p[1], p[2]) for p in ORIGINAL_PRODUCT_TEMPLATES}
 
         for ws in sh.worksheets():
+            if ws.title == "Tohum_Stoklari":
+                continue
             rows = ws.get_all_values()
             if len(rows) > 1:
                 clean_prod = []
@@ -201,6 +203,68 @@ def load_data_from_sheets():
 
     return get_clean_empty_sheet_data()
 
+def load_seeds_from_sheets():
+    """Tohum stoklarını Google Sheets'ten yükler"""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open("Mikrofiliz_Verileri")
+        try:
+            ws = sh.worksheet("Tohum_Stoklari")
+            rows = ws.get_all_values()
+            if len(rows) > 1:
+                seeds = []
+                for r in rows[1:]:
+                    if len(r) >= 5:
+                        seeds.append({
+                            "product": str(r[0]).strip(),
+                            "brand": str(r[1]).strip(),
+                            "stock_gram": safe_float(r[2]),
+                            "per_unit_gram": safe_float(r[3]),
+                            "manual_used_gram": safe_float(r[4]),
+                            "is_active": str(r[5]).strip().lower() in ["true", "1", "evet"] if len(r)>5 else True
+                        })
+                if seeds:
+                    return seeds
+        except:
+            pass
+    except Exception as e:
+        pass
+        
+    # Varsayılan Tohum Listesi
+    default_seeds = []
+    for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
+        default_seeds.append({
+            "product": name,
+            "brand": "Varsayılan Marka",
+            "stock_gram": 1000.0,
+            "per_unit_gram": float(gram_unit),
+            "manual_used_gram": 0.0,
+            "is_active": True
+        })
+    return default_seeds
+
+def save_seeds_to_sheets(seeds_list):
+    """Tohum stoklarını Google Sheets'e kaydeder"""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open("Mikrofiliz_Verileri")
+        try:
+            ws = sh.worksheet("Tohum_Stoklari")
+            ws.clear()
+        except:
+            ws = sh.add_worksheet(title="Tohum_Stoklari", rows="100", cols="10")
+            
+        seed_headers = ["Ürün Adı", "Marka", "Depo Stoğu (g)", "1 Viyol (g)", "Manuel Harcanan (g)", "Aktif mi"]
+        full_rows = [seed_headers]
+        for s in seeds_list:
+            full_rows.append([
+                s["product"], s["brand"], str(s["stock_gram"]), 
+                str(s["per_unit_gram"]), str(s["manual_used_gram"]), "True" if s["is_active"] else "False"
+            ])
+        ws.update("A1", full_rows)
+    except Exception as e:
+        st.error(f"Tohum Kayıt Hatası: {e}")
+
 def save_data_to_sheets(sheets_data):
     try:
         gc = get_gspread_client()
@@ -209,6 +273,7 @@ def save_data_to_sheets(sheets_data):
         existing_worksheets = {ws.title: ws for ws in sh.worksheets()}
         
         for s_name, rows in sheets_data.items():
+            if s_name == "Tohum_Stoklari": continue
             if s_name in existing_worksheets:
                 ws = existing_worksheets[s_name]
                 ws.clear()
@@ -228,7 +293,7 @@ def save_data_to_sheets(sheets_data):
             ws.update("A1", full_rows)
             
         for old_title, ws in existing_worksheets.items():
-            if old_title not in sheets_data and len(sh.worksheets()) > 1:
+            if old_title != "Tohum_Stoklari" and old_title not in sheets_data and len(sh.worksheets()) > 1:
                 sh.del_worksheet(ws)
 
         st.toast("✅ Veriler Google Sheets'e kaydedildi!", icon="💾")
@@ -306,6 +371,7 @@ def export_sheets_to_excel(sheets_data):
     wb.remove(wb.active)
     
     for s_name, rows in sheets_data.items():
+        if s_name == "Tohum_Stoklari": continue
         ws = wb.create_sheet(title=s_name)
         data_rows = rows[1:]
         tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
@@ -359,18 +425,9 @@ if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
 if "brand_seed_stocks" not in st.session_state:
-    st.session_state.brand_seed_stocks = []
-    for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
-        st.session_state.brand_seed_stocks.append({
-            "product": name,
-            "brand": "Varsayılan Marka",
-            "stock_gram": 1000.0,
-            "per_unit_gram": float(gram_unit),
-            "manual_used_gram": 0.0,
-            "is_active": True
-        })
+    st.session_state.brand_seed_stocks = load_seeds_from_sheets()
 
-all_parti_names = list(st.session_state.sheets.keys())
+all_parti_names = [k for k in st.session_state.sheets.keys() if k != "Tohum_Stoklari"]
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
 if not active_parti_names:
@@ -386,8 +443,6 @@ if not active_parti_names:
 
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
-
-st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -409,6 +464,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                 if new_p_name.strip() and new_p_name.strip() not in current_prods:
                     p_name_clean = new_p_name.strip()
                     for p_key in st.session_state.sheets.keys():
+                        if p_key == "Tohum_Stoklari": continue
                         st.session_state.sheets[p_key].append([
                             p_name_clean, "0", "0", "0", "0", "", "", str(new_p_hasat), "", str(new_p_kar), "", ""
                         ])
@@ -421,6 +477,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                         "is_active": True
                     })
                     save_data_to_sheets(st.session_state.sheets)
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
                     st.success(f"'{p_name_clean}' tüm partilere ve Tohum Sistemine eklendi!")
                     st.rerun()
                 else:
@@ -440,6 +497,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             with c_btn1:
                 if st.button("💾 Süreleri Güncelle", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
+                        if p_key == "Tohum_Stoklari": continue
                         for r in st.session_state.sheets[p_key][1:]:
                             if len(r)>0 and r[0] == edit_p_select:
                                 r[7] = str(up_hasat)
@@ -450,9 +508,11 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             with c_btn2:
                 if st.button("🗑️ Ürünü Sil", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
+                        if p_key == "Tohum_Stoklari": continue
                         st.session_state.sheets[p_key] = [r for r in st.session_state.sheets[p_key] if len(r)==0 or r[0] != edit_p_select]
                     st.session_state.brand_seed_stocks = [s for s in st.session_state.brand_seed_stocks if s["product"] != edit_p_select]
                     save_data_to_sheets(st.session_state.sheets)
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
                     st.success(f"'{edit_p_select}' sistemden silindi!")
                     st.rerun()
 
@@ -542,7 +602,8 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                         "manual_used_gram": seed_manual_used,
                         "is_active": set_as_active
                     })
-                    st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu eklendi!")
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+                    st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu eklendi ve Google Sheets'e kaydedildi!")
                     st.rerun()
         else:
             curr_brand_obj = next((s for s in existing_brands_for_prod if s["brand"] == selected_existing_brand), None)
@@ -569,11 +630,13 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                         curr_brand_obj["is_active"] = True
                     else:
                         curr_brand_obj["is_active"] = False
-                    st.success(f"'{selected_existing_brand}' tohumu güncellendi!")
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+                    st.success(f"'{selected_existing_brand}' tohumu güncellendi ve Google Sheets'e kaydedildi!")
                     st.rerun()
             with c_sd2:
                 if st.button("🗑️ Tohumu Sil", use_container_width=True):
                     st.session_state.brand_seed_stocks = [s for s in st.session_state.brand_seed_stocks if not (s["product"] == target_prod_for_seed and s["brand"] == selected_existing_brand)]
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
                     st.success(f"'{selected_existing_brand}' tohum kaydı silindi!")
                     st.rerun()
 
@@ -582,7 +645,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
         with col_hdr_s1:
             st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
         with col_hdr_s2:
-            # 🟢 SADECE KULLANILAN TOHUMLARI GÖSTER FİLTRE KUTUSU
             only_active_seeds = st.checkbox("⭐ Sadece Kullanılan Tohumları Göster", value=False, key="filter_only_active_seeds")
 
         seed_table_rows = []
@@ -596,7 +658,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             man_g = item.get("manual_used_gram", 0.0)
             is_act = item["is_active"]
 
-            # Eğer sadece kullanılanlar filtresi açıksa ve pasifse atla
             if only_active_seeds and not is_act:
                 continue
 
@@ -676,7 +737,7 @@ with st.sidebar:
         if len(active_parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
                 del st.session_state.sheets[st.session_state.active_parti]
-                active_parti_names = [p for p in list(st.session_state.sheets.keys()) if p not in st.session_state.archived_partis]
+                active_parti_names = [p for p in list(st.session_state.sheets.keys()) if p not in st.session_state.archived_partis and p != "Tohum_Stoklari"]
                 st.session_state.active_parti = active_parti_names[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
@@ -723,6 +784,7 @@ with st.sidebar:
                     if "brand_seed_stocks" in backup_obj: st.session_state.brand_seed_stocks = backup_obj["brand_seed_stocks"]
                     
                     save_data_to_sheets(st.session_state.sheets)
+                    save_seeds_to_sheets(st.session_state.brand_seed_stocks)
                     st.success("Tüm sistem yedeği başarıyla geri yüklendi ve kaydedildi!")
                     st.rerun()
             except Exception as e:
