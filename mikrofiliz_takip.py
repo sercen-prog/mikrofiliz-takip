@@ -984,7 +984,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
 
 st.markdown("---")
 
-# ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU (PDF DESTEKLİ)
+# ÜRÜN BAZLI VE EKİLENLER FİLTRELEME MODU (PDF DESTEKLİ)
 selected_parti = st.session_state.active_parti
 rows = st.session_state.sheets.get(selected_parti, [])
 
@@ -998,6 +998,13 @@ if rows:
             "🔍 Ürün Bazlı İnceleme (Aktif Partiler Genelinde):",
             ["Tüm Tabloyu Göster (Aktif Parti)"] + all_product_names
         )
+    with col_f2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        only_planted = st.checkbox("🌱 Sadece Ekilen Ürünleri Göster", value=False, key="filter_only_planted")
+
+    # EĞER SADECE EKİLENLER İSTENDİYSE SÜZ
+    if only_planted:
+        prod_rows = [r for r in prod_rows if safe_int(r[1]) > 0 or (len(r) > 6 and r[6].strip() != "")]
 
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
         col_prod_hdr1, col_prod_hdr2 = st.columns([3, 1])
