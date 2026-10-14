@@ -182,7 +182,7 @@ def load_data_from_sheets():
                         musteri = str(r[5]).strip() if len(r)>5 and not str(r[5]).strip().isdigit() else ""
                         ekim_str = format_date_tr(r[6]) if len(r)>6 else ""
                         
-                        def_hasat, def_kar = template_dict.get(u_name.split("(")[0].strip(), ("10", "3"))
+                        def_hasat, def_kar = template_dict.get(u_name, ("10", "3"))
                         has_suresi = str(r[7]).strip() if len(r)>7 and str(r[7]).strip().isdigit() else def_hasat
                         kar_suresi = str(r[9]).strip() if len(r)>9 and str(r[9]).strip().isdigit() else def_kar
 
@@ -263,6 +263,7 @@ def save_seeds_to_sheets(seeds_list):
         st.error(f"Tohum Kayıt Hatası: {e}")
 
 def load_customers_from_sheets():
+    """Müşterileri Google Sheets'ten yükler"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -280,6 +281,7 @@ def load_customers_from_sheets():
     return list(DEFAULT_CUSTOMERS)
 
 def save_customers_to_sheets(cust_list):
+    """Müşterileri Google Sheets'e kaydeder"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -343,6 +345,7 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
         bottomMargin=20
     )
     story = []
+    
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle(
@@ -480,7 +483,7 @@ if "active_parti" not in st.session_state or st.session_state.active_parti not i
 
 st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
-# ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ
+# ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
     tab_prod, tab_cust, tab_arch, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "📦 Arşivlenmiş Partiler", "🧹 Parti Sıfırlama"])
     
@@ -1316,15 +1319,14 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ (EKİM & FİRE YÖNETİMİ VE MARKA VARYANT EKLEME)
+    # HIZLI DÜZENLEME PANELİ (EKİM & FİRE YÖNETİMİ)
     st.markdown("---")
-    st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Tohum Markası / Varyant Yönetimi)")
+    st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Fire Yönetimi)")
 
-    col_hp1, col_hp2, col_hp3 = st.columns([1.5, 1.5, 1])
+    col_hp1, col_hp2 = st.columns(2)
     
     with col_hp1:
-        # Ana ürün ismi veya var olan marka seçimi
-        selected_base_product = st.selectbox("🌱 İşlem Yapılacak Ana Ürün", all_product_names, key="quick_urun_select")
+        selected_urun = st.selectbox("🌱 İşlem Yapılacak Ürün", all_product_names, key="quick_urun_select")
 
     with col_hp2:
         target_parti = st.selectbox(
@@ -1334,126 +1336,96 @@ if rows:
             key="quick_parti_select"
         )
 
-    # O ürüne ait Tohum Markaları
-    base_raw_name = selected_base_product.split("(")[0].strip()
-    prod_seed_brands = [s["brand"] for s in st.session_state.brand_seed_stocks if s["product"] in [selected_base_product, base_raw_name]]
-    if not prod_seed_brands: prod_seed_brands = ["Varsayılan Marka"]
-
-    with col_hp3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        new_brand_variant_tag = st.text_input("➕ Varyant / Marka Adı (Örn: Yerli, İthal)", key=f"quick_variant_tag_input")
-
-    # Eğer marka eklenerek yeni isim türetildiyse
-    if new_brand_variant_tag.strip():
-        final_target_product_name = f"{base_raw_name} ({new_brand_variant_tag.strip()})"
-    else:
-        final_target_product_name = selected_base_product
-
     target_sheet_rows = st.session_state.sheets.get(target_parti, [])[1:]
-    idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == final_target_product_name), None)
+    idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == selected_urun), None)
 
-    # Eğer yeni marka adıyla satır yoksa sıfır değerlerle aç
-    curr_r = None
     if idx is not None:
         curr_r = target_sheet_rows[idx]
-    else:
-        # Temel üründen süreleri çek
-        base_ref = next((r for r in target_sheet_rows if r[0] == selected_base_product), None)
-        h_s = base_ref[7] if base_ref and len(base_ref)>7 else "10"
-        k_s = base_ref[9] if base_ref and len(base_ref)>9 else "3"
-        curr_r = [final_target_product_name, "0", "0", "0", "0", "", "", h_s, "", k_s, "", ""]
 
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-    with c1:
-        e_ekim = st.date_input(
-            "Ekim Tarihi (Gün/Ay/Yıl)", 
-            parse_tr_date(curr_r[6]) if curr_r[6] else datetime.date.today(), 
-            format="DD.MM.YYYY",
-            key=f"input_ekim_{target_parti}_{final_target_product_name}"
-        )
-        e_u_adet = st.number_input(
-            "Üretim Adeti", 
-            min_value=0, 
-            value=safe_int(curr_r[1]),
-            key=f"input_u_adet_{target_parti}_{final_target_product_name}"
-        )
-    with c2:
-        selected_seed_brand_quick = st.selectbox(
-            "🏷️ Kullanılacak Tohum Markası",
-            prod_seed_brands,
-            key=f"input_seed_brand_{target_parti}_{final_target_product_name}"
-        )
-        e_fire = st.number_input(
-            "Çöpe Atılan (Fire)", 
-            min_value=0, 
-            value=safe_int(curr_r[3]),
-            key=f"input_fire_{target_parti}_{final_target_product_name}"
-        )
-    with c3:
-        e_kar = st.number_input(
-            "Karanlıkta (gün)", 
-            min_value=1, 
-            value=safe_int(curr_r[9]) if curr_r[9] != "" else 3,
-            key=f"input_kar_{target_parti}_{final_target_product_name}"
-        )
-        e_has = st.number_input(
-            "Hasat Süresi (gün)", 
-            min_value=1, 
-            value=safe_int(curr_r[7]) if curr_r[7] != "" else 10,
-            key=f"input_has_{target_parti}_{final_target_product_name}"
-        )
-    with c4:
-        st.markdown("<br>", unsafe_allow_html=True)
-        e_not = st.text_input(
-            "Not / Açıklama", 
-            value=curr_r[11],
-            key=f"input_not_{target_parti}_{final_target_product_name}"
-        )
+        # O ürüne ait Tohum Markaları
+        prod_seed_brands = [s["brand"] for s in st.session_state.brand_seed_stocks if s["product"] == selected_urun]
+        if not prod_seed_brands: prod_seed_brands = ["Varsayılan Marka"]
 
-    if st.button(f"⚡ {final_target_product_name} ({target_parti}) Verilerini Kaydet", use_container_width=True):
-        e_s_cikan = safe_int(curr_r[2])
-        e_musteri = curr_r[5]
-        kalan = max(0, e_u_adet - e_s_cikan - e_fire)
-        isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
-        hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+        with c1:
+            e_ekim = st.date_input(
+                "Ekim Tarihi (Gün/Ay/Yıl)", 
+                parse_tr_date(curr_r[6]) if curr_r[6] else datetime.date.today(), 
+                format="DD.MM.YYYY",
+                key=f"input_ekim_{target_parti}_{selected_urun}"
+            )
+            e_u_adet = st.number_input(
+                "Üretim Adeti", 
+                min_value=0, 
+                value=safe_int(curr_r[1]),
+                key=f"input_u_adet_{target_parti}_{selected_urun}"
+            )
+        with c2:
+            selected_seed_brand_quick = st.selectbox(
+                "🏷️ Kullanılacak Tohum Markası",
+                prod_seed_brands,
+                key=f"input_seed_brand_{target_parti}_{selected_urun}"
+            )
+            e_fire = st.number_input(
+                "Çöpe Atılan (Fire)", 
+                min_value=0, 
+                value=safe_int(curr_r[3]),
+                key=f"input_fire_{target_parti}_{selected_urun}"
+            )
+        with c3:
+            e_kar = st.number_input(
+                "Karanlıkta (gün)", 
+                min_value=1, 
+                value=safe_int(curr_r[9]) if curr_r[9] != "" else 3,
+                key=f"input_kar_{target_parti}_{selected_urun}"
+            )
+            e_has = st.number_input(
+                "Hasat Süresi (gün)", 
+                min_value=1, 
+                value=safe_int(curr_r[7]) if curr_r[7] != "" else 10,
+                key=f"input_has_{target_parti}_{selected_urun}"
+            )
+        with c4:
+            st.markdown("<br>", unsafe_allow_html=True)
+            e_not = st.text_input(
+                "Not / Açıklama", 
+                value=curr_r[11],
+                key=f"input_not_{target_parti}_{selected_urun}"
+            )
 
-        # Seçilen markayı aktif yap
-        for s in st.session_state.brand_seed_stocks:
-            if s["product"] in [final_target_product_name, base_raw_name]:
-                if s["brand"] == selected_seed_brand_quick:
-                    s["is_active"] = True
-                else:
-                    s["is_active"] = False
+        if st.button(f"⚡ {selected_urun} ({target_parti}) Verilerini Kaydet", use_container_width=True):
+            e_s_cikan = safe_int(curr_r[2])
+            e_musteri = curr_r[5]
+            kalan = max(0, e_u_adet - e_s_cikan - e_fire)
+            isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
+            hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
 
-        updated = [
-            final_target_product_name,
-            str(e_u_adet),
-            str(e_s_cikan),
-            str(e_fire),
-            str(kalan),
-            e_musteri,
-            e_ekim.strftime("%d.%m.%Y"),
-            str(e_has),
-            hasat_dt.strftime("%d.%m.%Y"),
-            str(e_kar),
-            isik_dt.strftime("%d.%m.%Y"),
-            e_not
-        ]
+            # Seçilen markayı aktif yap
+            for s in st.session_state.brand_seed_stocks:
+                if s["product"] == selected_urun:
+                    if s["brand"] == selected_seed_brand_quick:
+                        s["is_active"] = True
+                    else:
+                        s["is_active"] = False
 
-        if idx is not None:
+            updated = [
+                selected_urun,
+                str(e_u_adet),
+                str(e_s_cikan),
+                str(e_fire),
+                str(kalan),
+                e_musteri,
+                e_ekim.strftime("%d.%m.%Y"),
+                str(e_has),
+                hasat_dt.strftime("%d.%m.%Y"),
+                str(e_kar),
+                isik_dt.strftime("%d.%m.%Y"),
+                e_not
+            ]
             st.session_state.sheets[target_parti][idx + 1] = updated
-        else:
-            # Yeni varyant olarak tüm partilere ekle ki düzen bozulmasın
-            for p_k in st.session_state.sheets.keys():
-                if p_k in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
-                if p_k == target_parti:
-                    st.session_state.sheets[p_k].append(updated)
-                else:
-                    st.session_state.sheets[p_k].append([
-                        final_target_product_name, "0", "0", "0", "0", "", "", str(e_has), "", str(e_kar), "", ""
-                    ])
-
-        save_data_to_sheets(st.session_state.sheets)
-        save_seeds_to_sheets(st.session_state.brand_seed_stocks)
-        st.success(f"'{final_target_product_name}' ({target_parti}) güncellendi! Seçilen Tohum: {selected_seed_brand_quick} | Kalan Ürün: {kalan}")
-        st.rerun()
+            save_data_to_sheets(st.session_state.sheets)
+            save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Seçilen Tohum: {selected_seed_brand_quick} | Kalan Ürün: {kalan}")
+            st.rerun()
+    else:
+        st.warning(f"'{selected_urun}' adlı ürün {target_parti} içerisinde henüz tanımlı değil.")
