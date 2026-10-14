@@ -1,11 +1,19 @@
 import json
 import datetime
 import io
+import re
 import openpyxl
 import streamlit as st
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
+
+# PDF Okuma Kütüphanesi
+try:
+    import pdfplumber
+    PDF_PARSER_AVAILABLE = True
+except ImportError:
+    PDF_PARSER_AVAILABLE = False
 
 # Reportlab PDF Kütüphaneleri
 from reportlab.lib.pagesizes import A4, landscape
@@ -136,6 +144,39 @@ def fix_tr_chars_for_pdf(txt):
         txt = txt.replace(k, v)
     return txt
 
+def parse_pdf_invoice(uploaded_pdf_file, registered_products, registered_customers):
+    """PDF Faturadan Müşteri ve Ürün Satışlarını Otomatik Taramak İçin Akıllı Ayrıştırıcı"""
+    extracted_text = ""
+    parsed_items = []
+    found_customer = ""
+
+    try:
+        with pdfplumber.open(uploaded_pdf_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
+    except Exception as e:
+        return None, [], f"PDF Okuma Hatası: {e}"
+
+    # Müşteri İsmi Tespiti
+    for cust in registered_customers:
+        if cust.lower() in extracted_text.lower():
+            found_customer = cust
+            break
+
+    # Ürün ve Miktar Tespiti
+    for prod in registered_products:
+        prod_clean = prod.split("(")[0].strip()
+        pattern = re.compile(rf"{re.escape(prod_clean)}.*?\b(\d+)\b", re.IGNORECASE)
+        matches = pattern.findall(extracted_text)
+        if matches:
+            qty = safe_int(matches[0])
+            if qty > 0:
+                parsed_items.append({"product": prod, "qty": qty})
+
+    return found_customer, parsed_items, extracted_text
+
 def get_clean_empty_sheet_data():
     rows = [HEADERS]
     for name, hasat, kar, _ in ORIGINAL_PRODUCT_TEMPLATES:
@@ -263,7 +304,6 @@ def save_seeds_to_sheets(seeds_list):
         st.error(f"Tohum Kayıt Hatası: {e}")
 
 def load_customers_from_sheets():
-    """Müşterileri Google Sheets'ten yükler"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -281,7 +321,6 @@ def load_customers_from_sheets():
     return list(DEFAULT_CUSTOMERS)
 
 def save_customers_to_sheets(cust_list):
-    """Müşterileri Google Sheets'e kaydeder"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -345,7 +384,6 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
         bottomMargin=20
     )
     story = []
-    
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle(
@@ -757,7 +795,78 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
 
 st.markdown("---")
 
-# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Excel & Oturum Kapatma
+# 📄 PDF FATURA İLE OTOMATİK SATIŞ DÜŞME MODÜLÜ
+with st.expander("🧾 PDF Fatura / İrsaliye Yükle (Otomatik Satış İşle)", expanded=False):
+    st.markdown("#### 📄 Faturayı Yükleyin, Satışları Otomatik Stoktan Düşelim")
+    col_inv1, col_inv2 = st.columns([1.5, 1])
+
+    with col_inv1:
+        uploaded_invoice_pdf = st.file_uploader("PDF Fatura veya İrsaliye Seçin", type=["pdf"], key="invoice_pdf_uploader")
+
+    if uploaded_invoice_pdf is not None:
+        first_p_rows = st.session_state.sheets[all_parti_names[0]][1:]
+        current_prods = [r[0] for r in first_p_rows if len(r)>0 and r[0] != "Toplam Üretim"]
+
+        detected_cust, detected_prods, raw_pdf_txt = parse_pdf_invoice(
+            uploaded_invoice_pdf, 
+            current_prods, 
+            st.session_state.customers_list
+        )
+
+        with col_inv2:
+            st.markdown("##### 🔍 Faturadan Tespit Edilen Veriler")
+            inv_cust_target = st.selectbox(
+                "Tespit Edilen Müşteri / Restoran",
+                st.session_state.customers_list,
+                index=st.session_state.customers_list.index(detected_cust) if detected_cust in st.session_state.customers_list else 0,
+                key="inv_cust_select_target"
+            )
+
+            inv_parti_target = st.selectbox("Satışın Düşüleceği Parti", active_parti_names, key="inv_parti_select_target")
+
+        if detected_prods:
+            st.markdown("##### 🛒 Faturada Bulunan Satış Kalemleri")
+            inv_df = pd.DataFrame(detected_prods)
+            inv_df.columns = ["Ürün Adı", "Satış Adedi"]
+            st.dataframe(inv_df, hide_index=True, use_container_width=True)
+
+            if st.button("✅ Faturadaki Tüm Satışları Seçili Partiden Düş ve Onayla", use_container_width=True, type="primary"):
+                parti_rows = st.session_state.sheets[inv_parti_target]
+                success_count = 0
+
+                for item in detected_prods:
+                    p_name = item["product"]
+                    p_qty = item["qty"]
+
+                    # Partideki ürün satırını bul
+                    r_idx = next((i for i, r in enumerate(parti_rows[1:]) if r[0] == p_name), None)
+                    if r_idx is not None:
+                        row = parti_rows[r_idx + 1]
+                        u_miktari = safe_int(row[1])
+                        m_satilan = safe_int(row[2])
+                        m_fire = safe_int(row[3])
+
+                        yeni_satilan = m_satilan + p_qty
+                        yeni_kalan = max(0, u_miktari - yeni_satilan - m_fire)
+
+                        eski_m_text = row[5]
+                        yeni_entry = f"{inv_cust_target} ({p_qty} Adet)"
+                        yeni_m_text = f"{eski_m_text}, {yeni_entry}" if eski_m_text.strip() else yeni_entry
+
+                        row[2] = str(yeni_satilan)
+                        row[4] = str(yeni_kalan)
+                        row[5] = yeni_m_text
+                        success_count += 1
+
+                save_data_to_sheets(st.session_state.sheets)
+                st.success(f"🎉 Fatura İşlendi! '{inv_cust_target}' müşterisi için {success_count} ürün kalemi {inv_parti_target} stoğundan başarıyla düşüldü.")
+                st.rerun()
+        else:
+            st.warning("PDF içerisinde kayıtlı ürünlerinizle eşleşen bir satış kalemi bulunamadı.")
+
+st.markdown("---")
+
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Excel & OTURUM KAPATMA
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -1319,14 +1428,14 @@ if rows:
 
         st.table(table_data)
 
-    # HIZLI DÜZENLEME PANELİ (EKİM & FİRE YÖNETİMİ)
+    # HIZLI DÜZENLEME PANELİ (EKİM & FİRE YÖNETİMİ VE MARKA VARYANT EKLEME)
     st.markdown("---")
-    st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Fire Yönetimi)")
+    st.subheader("⚡ Hızlı İşlem Paneli (Ekim & Tohum Markası / Varyant Yönetimi)")
 
-    col_hp1, col_hp2 = st.columns(2)
+    col_hp1, col_hp2, col_hp3 = st.columns([1.5, 1.5, 1])
     
     with col_hp1:
-        selected_urun = st.selectbox("🌱 İşlem Yapılacak Ürün", all_product_names, key="quick_urun_select")
+        selected_base_product = st.selectbox("🌱 İşlem Yapılacak Ana Ürün", all_product_names, key="quick_urun_select")
 
     with col_hp2:
         target_parti = st.selectbox(
@@ -1336,96 +1445,120 @@ if rows:
             key="quick_parti_select"
         )
 
-    target_sheet_rows = st.session_state.sheets.get(target_parti, [])[1:]
-    idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == selected_urun), None)
+    base_raw_name = selected_base_product.split("(")[0].strip()
+    prod_seed_brands = [s["brand"] for s in st.session_state.brand_seed_stocks if s["product"] in [selected_base_product, base_raw_name]]
+    if not prod_seed_brands: prod_seed_brands = ["Varsayılan Marka"]
 
+    with col_hp3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        new_brand_variant_tag = st.text_input("➕ Varyant / Marka Adı (Örn: Yerli, İthal)", key=f"quick_variant_tag_input")
+
+    if new_brand_variant_tag.strip():
+        final_target_product_name = f"{base_raw_name} ({new_brand_variant_tag.strip()})"
+    else:
+        final_target_product_name = selected_base_product
+
+    target_sheet_rows = st.session_state.sheets.get(target_parti, [])[1:]
+    idx = next((i for i, r in enumerate(target_sheet_rows) if r[0] == final_target_product_name), None)
+
+    curr_r = None
     if idx is not None:
         curr_r = target_sheet_rows[idx]
-
-        # O ürüne ait Tohum Markaları
-        prod_seed_brands = [s["brand"] for s in st.session_state.brand_seed_stocks if s["product"] == selected_urun]
-        if not prod_seed_brands: prod_seed_brands = ["Varsayılan Marka"]
-
-        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-        with c1:
-            e_ekim = st.date_input(
-                "Ekim Tarihi (Gün/Ay/Yıl)", 
-                parse_tr_date(curr_r[6]) if curr_r[6] else datetime.date.today(), 
-                format="DD.MM.YYYY",
-                key=f"input_ekim_{target_parti}_{selected_urun}"
-            )
-            e_u_adet = st.number_input(
-                "Üretim Adeti", 
-                min_value=0, 
-                value=safe_int(curr_r[1]),
-                key=f"input_u_adet_{target_parti}_{selected_urun}"
-            )
-        with c2:
-            selected_seed_brand_quick = st.selectbox(
-                "🏷️ Kullanılacak Tohum Markası",
-                prod_seed_brands,
-                key=f"input_seed_brand_{target_parti}_{selected_urun}"
-            )
-            e_fire = st.number_input(
-                "Çöpe Atılan (Fire)", 
-                min_value=0, 
-                value=safe_int(curr_r[3]),
-                key=f"input_fire_{target_parti}_{selected_urun}"
-            )
-        with c3:
-            e_kar = st.number_input(
-                "Karanlıkta (gün)", 
-                min_value=1, 
-                value=safe_int(curr_r[9]) if curr_r[9] != "" else 3,
-                key=f"input_kar_{target_parti}_{selected_urun}"
-            )
-            e_has = st.number_input(
-                "Hasat Süresi (gün)", 
-                min_value=1, 
-                value=safe_int(curr_r[7]) if curr_r[7] != "" else 10,
-                key=f"input_has_{target_parti}_{selected_urun}"
-            )
-        with c4:
-            st.markdown("<br>", unsafe_allow_html=True)
-            e_not = st.text_input(
-                "Not / Açıklama", 
-                value=curr_r[11],
-                key=f"input_not_{target_parti}_{selected_urun}"
-            )
-
-        if st.button(f"⚡ {selected_urun} ({target_parti}) Verilerini Kaydet", use_container_width=True):
-            e_s_cikan = safe_int(curr_r[2])
-            e_musteri = curr_r[5]
-            kalan = max(0, e_u_adet - e_s_cikan - e_fire)
-            isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
-            hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
-
-            # Seçilen markayı aktif yap
-            for s in st.session_state.brand_seed_stocks:
-                if s["product"] == selected_urun:
-                    if s["brand"] == selected_seed_brand_quick:
-                        s["is_active"] = True
-                    else:
-                        s["is_active"] = False
-
-            updated = [
-                selected_urun,
-                str(e_u_adet),
-                str(e_s_cikan),
-                str(e_fire),
-                str(kalan),
-                e_musteri,
-                e_ekim.strftime("%d.%m.%Y"),
-                str(e_has),
-                hasat_dt.strftime("%d.%m.%Y"),
-                str(e_kar),
-                isik_dt.strftime("%d.%m.%Y"),
-                e_not
-            ]
-            st.session_state.sheets[target_parti][idx + 1] = updated
-            save_data_to_sheets(st.session_state.sheets)
-            save_seeds_to_sheets(st.session_state.brand_seed_stocks)
-            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Seçilen Tohum: {selected_seed_brand_quick} | Kalan Ürün: {kalan}")
-            st.rerun()
     else:
-        st.warning(f"'{selected_urun}' adlı ürün {target_parti} içerisinde henüz tanımlı değil.")
+        base_ref = next((r for r in target_sheet_rows if r[0] == selected_base_product), None)
+        h_s = base_ref[7] if base_ref and len(base_ref)>7 else "10"
+        k_s = base_ref[9] if base_ref and len(base_ref)>9 else "3"
+        curr_r = [final_target_product_name, "0", "0", "0", "0", "", "", h_s, "", k_s, "", ""]
+
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+    with c1:
+        e_ekim = st.date_input(
+            "Ekim Tarihi (Gün/Ay/Yıl)", 
+            parse_tr_date(curr_r[6]) if curr_r[6] else datetime.date.today(), 
+            format="DD.MM.YYYY",
+            key=f"input_ekim_{target_parti}_{final_target_product_name}"
+        )
+        e_u_adet = st.number_input(
+            "Üretim Adeti", 
+            min_value=0, 
+            value=safe_int(curr_r[1]),
+            key=f"input_u_adet_{target_parti}_{final_target_product_name}"
+        )
+    with c2:
+        selected_seed_brand_quick = st.selectbox(
+            "🏷️ Kullanılacak Tohum Markası",
+            prod_seed_brands,
+            key=f"input_seed_brand_{target_parti}_{final_target_product_name}"
+        )
+        e_fire = st.number_input(
+            "Çöpe Atılan (Fire)", 
+            min_value=0, 
+            value=safe_int(curr_r[3]),
+            key=f"input_fire_{target_parti}_{final_target_product_name}"
+        )
+    with c3:
+        e_kar = st.number_input(
+            "Karanlıkta (gün)", 
+            min_value=1, 
+            value=safe_int(curr_r[9]) if curr_r[9] != "" else 3,
+            key=f"input_kar_{target_parti}_{final_target_product_name}"
+        )
+        e_has = st.number_input(
+            "Hasat Süresi (gün)", 
+            min_value=1, 
+            value=safe_int(curr_r[7]) if curr_r[7] != "" else 10,
+            key=f"input_has_{target_parti}_{final_target_product_name}"
+        )
+    with c4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        e_not = st.text_input(
+            "Not / Açıklama", 
+            value=curr_r[11],
+            key=f"input_not_{target_parti}_{final_target_product_name}"
+        )
+
+    if st.button(f"⚡ {final_target_product_name} ({target_parti}) Verilerini Kaydet", use_container_width=True):
+        e_s_cikan = safe_int(curr_r[2])
+        e_musteri = curr_r[5]
+        kalan = max(0, e_u_adet - e_s_cikan - e_fire)
+        isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
+        hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
+
+        for s in st.session_state.brand_seed_stocks:
+            if s["product"] in [final_target_product_name, base_raw_name]:
+                if s["brand"] == selected_seed_brand_quick:
+                    s["is_active"] = True
+                else:
+                    s["is_active"] = False
+
+        updated = [
+            final_target_product_name,
+            str(e_u_adet),
+            str(e_s_cikan),
+            str(e_fire),
+            str(kalan),
+            e_musteri,
+            e_ekim.strftime("%d.%m.%Y"),
+            str(e_has),
+            hasat_dt.strftime("%d.%m.%Y"),
+            str(e_kar),
+            isik_dt.strftime("%d.%m.%Y"),
+            e_not
+        ]
+
+        if idx is not None:
+            st.session_state.sheets[target_parti][idx + 1] = updated
+        else:
+            for p_k in st.session_state.sheets.keys():
+                if p_k in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
+                if p_k == target_parti:
+                    st.session_state.sheets[p_k].append(updated)
+                else:
+                    st.session_state.sheets[p_k].append([
+                        final_target_product_name, "0", "0", "0", "0", "", "", str(e_has), "", str(e_kar), "", ""
+                    ])
+
+        save_data_to_sheets(st.session_state.sheets)
+        save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+        st.success(f"'{final_target_product_name}' ({target_parti}) güncellendi! Seçilen Tohum: {selected_seed_brand_quick} | Kalan Ürün: {kalan}")
+        st.rerun()
