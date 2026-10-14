@@ -93,6 +93,14 @@ def safe_int(val):
     except:
         return 0
 
+def safe_float(val):
+    if not val: return 0.0
+    try:
+        val_str = str(val).replace("💡", "").strip()
+        return float(val_str)
+    except:
+        return 0.0
+
 def parse_tr_date(dt_str):
     if not dt_str: return None
     dt_str = str(dt_str).replace("💡", "").strip()
@@ -358,6 +366,7 @@ if "brand_seed_stocks" not in st.session_state:
             "brand": "Varsayılan Marka",
             "stock_gram": 1000.0,
             "per_unit_gram": float(gram_unit),
+            "manual_used_gram": 0.0,
             "is_active": True
         })
 
@@ -377,6 +386,8 @@ if not active_parti_names:
 
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
+
+st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -406,6 +417,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                         "brand": "Varsayılan Marka",
                         "stock_gram": 1000.0,
                         "per_unit_gram": 20.0,
+                        "manual_used_gram": 0.0,
                         "is_active": True
                     })
                     save_data_to_sheets(st.session_state.sheets)
@@ -513,6 +525,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             seed_brand_name = st.text_input("Marka / Paket Adı", value="A Marka", key="seed_brand_name_input_new")
             seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=1000.0, step=100.0, key="seed_stock_gram_input_new")
             seed_unit_gram = st.number_input("1 Viyol İçin Harcanan (Gram)", min_value=0.1, value=20.0, step=1.0, key="seed_unit_gram_input_new")
+            seed_manual_used = st.number_input("Ekstra / Manuel Harcanan Tohum (Gram)", min_value=0.0, value=0.0, step=10.0, key="seed_manual_used_input_new")
             set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=True, key="seed_set_active_check_new")
 
             if st.button("💾 Yeni Markalı Tohumu Kaydet", use_container_width=True):
@@ -526,6 +539,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                         "brand": seed_brand_name.strip(),
                         "stock_gram": seed_stock_gram,
                         "per_unit_gram": seed_unit_gram,
+                        "manual_used_gram": seed_manual_used,
                         "is_active": set_as_active
                     })
                     st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu eklendi!")
@@ -534,10 +548,12 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             curr_brand_obj = next((s for s in existing_brands_for_prod if s["brand"] == selected_existing_brand), None)
             cur_stk = curr_brand_obj["stock_gram"] if curr_brand_obj else 1000.0
             cur_unit = curr_brand_obj["per_unit_gram"] if curr_brand_obj else 20.0
+            cur_man = curr_brand_obj.get("manual_used_gram", 0.0) if curr_brand_obj else 0.0
             cur_act = curr_brand_obj["is_active"] if curr_brand_obj else True
 
             seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=cur_stk, step=100.0, key="seed_stock_gram_input_edit")
             seed_unit_gram = st.number_input("1 Viyol İçin Harcanan (Gram)", min_value=0.1, value=cur_unit, step=1.0, key="seed_unit_gram_input_edit")
+            seed_manual_used = st.number_input("Ekstra / Manuel Harcanan Tohum (Gram)", min_value=0.0, value=cur_man, step=10.0, key="seed_manual_used_input_edit")
             set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=cur_act, key="seed_set_active_check_edit")
 
             c_sd1, c_sd2 = st.columns(2)
@@ -545,6 +561,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                 if st.button("💾 Güncelle", use_container_width=True):
                     curr_brand_obj["stock_gram"] = seed_stock_gram
                     curr_brand_obj["per_unit_gram"] = seed_unit_gram
+                    curr_brand_obj["manual_used_gram"] = seed_manual_used
                     if set_as_active:
                         for other in st.session_state.brand_seed_stocks:
                             if other["product"] == target_prod_for_seed:
@@ -561,10 +578,13 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     st.rerun()
 
     with col_st2:
-        col_hdr_s1, col_hdr_s2 = st.columns([3, 1])
+        col_hdr_s1, col_hdr_s2 = st.columns([2.5, 1.5])
         with col_hdr_s1:
             st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
-        
+        with col_hdr_s2:
+            # 🟢 SADECE KULLANILAN TOHUMLARI GÖSTER FİLTRE KUTUSU
+            only_active_seeds = st.checkbox("⭐ Sadece Kullanılan Tohumları Göster", value=False, key="filter_only_active_seeds")
+
         seed_table_rows = []
         seed_pdf_rows = []
 
@@ -573,12 +593,17 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             b_name = item["brand"]
             tot_g = item["stock_gram"]
             u_g = item["per_unit_gram"]
+            man_g = item.get("manual_used_gram", 0.0)
             is_act = item["is_active"]
 
-            used_g = 0.0
+            # Eğer sadece kullanılanlar filtresi açıksa ve pasifse atla
+            if only_active_seeds and not is_act:
+                continue
+
+            used_g = man_g
             if is_act:
                 p_cnt = total_production_by_product.get(p_name, 0)
-                used_g = p_cnt * u_g
+                used_g += (p_cnt * u_g)
 
             rem_g = max(0.0, tot_g - used_g)
             possible_viyol = int(rem_g // u_g) if u_g > 0 else 0
@@ -590,26 +615,25 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                 "Tohum Markası": brand_label,
                 "Depo Stoğu": f"{tot_g:.0f} g",
                 "1 Viyol (g)": f"{u_g:.1f} g",
-                "Harcanan": f"{used_g:.0f} g",
+                "Harcanan Toplam": f"{used_g:.0f} g",
                 "Kalan Tohum": f"{rem_g:.0f} g",
                 "🌱 Yapılabilecek Üretim": f"{possible_viyol} Adet Viyol"
             })
             seed_pdf_rows.append([p_name, brand_label, f"{tot_g:.0f}g", f"{u_g:.1f}g", f"{used_g:.0f}g", f"{rem_g:.0f}g", f"{possible_viyol} Viyol"])
 
-        with col_hdr_s2:
-            if seed_pdf_rows:
-                pdf_seed = generate_pdf_report(
-                    "Tohum Stok ve Uretim Kapasitesi Raporu",
-                    ["Urun", "Marka", "Depo Stogu", "1 Viyol (g)", "Harcanan", "Kalan Tohum", "Uretim Potansiyeli"],
-                    seed_pdf_rows
-                )
-                st.download_button(
-                    "🖨️ Tohum Raporu PDF",
-                    data=pdf_seed,
-                    file_name="Tohum_Stok_Kapasite_Raporu.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+        if seed_pdf_rows:
+            pdf_seed = generate_pdf_report(
+                "Tohum Stok ve Uretim Kapasitesi Raporu",
+                ["Urun", "Marka", "Depo Stogu", "1 Viyol (g)", "Harcanan", "Kalan Tohum", "Uretim Potansiyeli"],
+                seed_pdf_rows
+            )
+            st.download_button(
+                "🖨️ Tohum Raporu PDF",
+                data=pdf_seed,
+                file_name="Tohum_Stok_Kapasite_Raporu.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
         if seed_table_rows:
             df_seeds = pd.DataFrame(seed_table_rows)
@@ -1002,7 +1026,6 @@ if rows:
         st.markdown("<br>", unsafe_allow_html=True)
         only_planted = st.checkbox("🌱 Sadece Ekilen Ürünleri Göster", value=False, key="filter_only_planted")
 
-    # EĞER SADECE EKİLENLER İSTENDİYSE SÜZ
     if only_planted:
         prod_rows = [r for r in prod_rows if safe_int(r[1]) > 0 or (len(r) > 6 and r[6].strip() != "")]
 
