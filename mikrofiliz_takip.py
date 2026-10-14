@@ -7,11 +7,23 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 
-# Reportlab PDF Kütüphaneleri
+# Reportlab PDF Kütüphaneleri ve Türkçe Font Desteği
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# Türkçe Karakter Desteği İçin Font Tanımlama
+try:
+    pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
+    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', 'DejaVuSans-Bold.ttf'))
+    PDF_FONT_NAME = 'DejaVuSans'
+    PDF_FONT_BOLD = 'DejaVuSans-Bold'
+except:
+    PDF_FONT_NAME = 'Helvetica'
+    PDF_FONT_BOLD = 'Helvetica-Bold'
 
 st.set_page_config(
     page_title="🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip",
@@ -189,16 +201,24 @@ def save_data_to_sheets(sheets_data):
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
 
-# PDF OLUSTURMA FONKSIYONU
+# TÜRKÇE FONT DESTEKLİ PDF OLUŞTURMA FONKSİYONU
 def generate_pdf_report(title_text, table_headers, table_rows_data):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=20,
+        leftMargin=20,
+        topMargin=20,
+        bottomMargin=20
+    )
     story = []
     
     styles = getSampleStyleSheet()
+    
     title_style = ParagraphStyle(
         'ReportTitle',
-        parent=styles['Heading1'],
+        fontName=PDF_FONT_BOLD,
         fontSize=16,
         leading=20,
         textColor=colors.HexColor("#1b5e20"),
@@ -206,20 +226,35 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
         spaceAfter=15
     )
     
-    story.append(Paragraph(f"🌱 Mikrofiliz Takip - {title_text}", title_style))
+    header_cell_style = ParagraphStyle(
+        'HeaderCellStyle',
+        fontName=PDF_FONT_BOLD,
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor("#1b5e20"),
+        alignment=1
+    )
+    
+    body_cell_style = ParagraphStyle(
+        'BodyCellStyle',
+        fontName=PDF_FONT_NAME,
+        fontSize=8,
+        leading=10,
+        alignment=1
+    )
+    
+    story.append(Paragraph(f"Mikrofiliz Takip - {title_text}", title_style))
     story.append(Spacer(1, 10))
     
-    # Tablo Verilerini Hazırla
-    pdf_table_data = [[Paragraph(f"<b>{h}</b>", styles['Normal']) for h in table_headers]]
+    pdf_table_data = [[Paragraph(h, header_cell_style) for h in table_headers]]
     
     for row in table_rows_data:
-        pdf_row = [Paragraph(str(cell), styles['Normal']) for cell in row]
+        pdf_row = [Paragraph(str(cell), body_cell_style) for cell in row]
         pdf_table_data.append(pdf_row)
         
     t = Table(pdf_table_data, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e8f5e9')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1b5e20')),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('BOTTOMPADDING', (0,0), (-1,0), 6),
@@ -612,7 +647,6 @@ with st.sidebar:
     st.markdown("---")
     st.header("💾 Tam Sistem Yedeği (Kayıpsız)")
     
-    # Tüm verileri JSON olarak paketle
     full_backup_data = {
         "sheets": st.session_state.sheets,
         "archived_partis": st.session_state.archived_partis,
@@ -791,7 +825,6 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
                     st.success(f"✅ Satış Başarılı! {final_customer} müşterisine {satilacak_adet} adet {s_urun} satıldı.")
                     st.rerun()
 
-        # Satış Raporu PDF Butonu
         sales_pdf_rows = []
         for p_k in active_parti_names:
             for r in st.session_state.sheets[p_k][1:]:
