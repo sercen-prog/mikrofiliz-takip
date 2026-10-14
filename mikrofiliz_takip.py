@@ -7,13 +7,19 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 
+# Reportlab PDF Kütüphaneleri
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 st.set_page_config(
     page_title="🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip",
     page_icon="🌱",
     layout="wide"
 )
 
-# Orijinal Excel Şablon Verileri ve Varsayılan Tohum Gramajları
+# Orijinal Excel Şablon Verileri
 ORIGINAL_PRODUCT_TEMPLATES = [
     ("Amaranth", "10", "3", 5),
     ("Bezelye", "12", "4", 150),
@@ -183,6 +189,49 @@ def save_data_to_sheets(sheets_data):
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
 
+# PDF OLUSTURMA FONKSIYONU
+def generate_pdf_report(title_text, table_headers, table_rows_data):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'ReportTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#1b5e20"),
+        alignment=1,
+        spaceAfter=15
+    )
+    
+    story.append(Paragraph(f"🌱 Mikrofiliz Takip - {title_text}", title_style))
+    story.append(Spacer(1, 10))
+    
+    # Tablo Verilerini Hazırla
+    pdf_table_data = [[Paragraph(f"<b>{h}</b>", styles['Normal']) for h in table_headers]]
+    
+    for row in table_rows_data:
+        pdf_row = [Paragraph(str(cell), styles['Normal']) for cell in row]
+        pdf_table_data.append(pdf_row)
+        
+    t = Table(pdf_table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e8f5e9')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1b5e20')),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#c8e6c9')),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f1f8e9')])
+    ]))
+    
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 def export_sheets_to_excel(sheets_data):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -240,7 +289,6 @@ if "archived_partis" not in st.session_state:
 if "customers_list" not in st.session_state:
     st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
 
-# MARKALI TOHUM STOK YAPISI
 if "brand_seed_stocks" not in st.session_state:
     st.session_state.brand_seed_stocks = []
     for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
@@ -269,13 +317,12 @@ if not active_parti_names:
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
 
-st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Markalı Tohum Takip Sistemi")
+st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
     tab_prod, tab_cust, tab_arch, tab_sys = st.tabs(["🌱 Ürün Yönetimi", "🚚 Müşteri Yönetimi", "📦 Arşivlenmiş Partiler", "🧹 Parti Sıfırlama"])
     
-    # 1. ÜRÜN YÖNETİMİ TABI
     with tab_prod:
         st.markdown("#### 🌱 Ürün Listesi ve Süre Düzenleme")
         first_p_rows = st.session_state.sheets[all_parti_names[0]][1:]
@@ -338,7 +385,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                     st.success(f"'{edit_p_select}' sistemden silindi!")
                     st.rerun()
 
-    # 2. MÜŞTERİ YÖNETİMİ TABI
     with tab_cust:
         st.markdown("#### 🚚 Müşteri / Satış Noktası Listesi")
         col_c1, col_c2 = st.columns(2)
@@ -359,7 +405,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                 st.success(f"'{del_c_select}' müşteri listesinden çıkarıldı!")
                 st.rerun()
 
-    # 3. ARŞİVLENMİŞ PARTİLER TABI
     with tab_arch:
         st.markdown("#### 📦 Arşivdeki Partiler")
         if st.session_state.archived_partis:
@@ -372,7 +417,6 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
         else:
             st.info("Henüz arşive kaldırılmış bir parti bulunmuyor.")
 
-    # 4. PARTİ BAZLI SİFIRLAMA TABI
     with tab_sys:
         st.markdown("#### 🧹 Parti Bazlı Veri Sıfırlama")
         target_reset_parti = st.selectbox("Sıfırlanacak Partiyi Seçin", all_parti_names, key="tab_reset_parti_select")
@@ -401,7 +445,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
         st.markdown("#### 🏷️ Markalı Tohum Ekle / Düzenle / Sil")
         target_prod_for_seed = st.selectbox("İlgili Ürün", all_current_prods, key="seed_target_prod_select")
         
-        # O ürüne ait mevcut markalı tohumlar
         existing_brands_for_prod = [s for s in st.session_state.brand_seed_stocks if s["product"] == target_prod_for_seed]
         brand_names_list = [s["brand"] for s in existing_brands_for_prod] if existing_brands_for_prod else ["Varsayılan Marka"]
         
@@ -429,7 +472,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu eklendi!")
                     st.rerun()
         else:
-            # Var olan markayı düzenle veya sil
             curr_brand_obj = next((s for s in existing_brands_for_prod if s["brand"] == selected_existing_brand), None)
             cur_stk = curr_brand_obj["stock_gram"] if curr_brand_obj else 1000.0
             cur_unit = curr_brand_obj["per_unit_gram"] if curr_brand_obj else 20.0
@@ -460,8 +502,12 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     st.rerun()
 
     with col_st2:
-        st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
+        col_hdr_s1, col_hdr_s2 = st.columns([3, 1])
+        with col_hdr_s1:
+            st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
+        
         seed_table_rows = []
+        seed_pdf_rows = []
 
         for item in st.session_state.brand_seed_stocks:
             p_name = item["product"]
@@ -478,15 +524,33 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             rem_g = max(0.0, tot_g - used_g)
             possible_viyol = int(rem_g // u_g) if u_g > 0 else 0
 
+            brand_label = f"{'⭐ (Kullanılan) ' if is_act else ''}{b_name}"
+
             seed_table_rows.append({
                 "Üretilen Ürün": p_name,
-                "Tohum Markası": f"{'⭐ (Kullanılan) ' if is_act else ''}{b_name}",
+                "Tohum Markası": brand_label,
                 "Depo Stoğu": f"{tot_g:.0f} g",
                 "1 Viyol (g)": f"{u_g:.1f} g",
                 "Harcanan": f"{used_g:.0f} g",
                 "Kalan Tohum": f"{rem_g:.0f} g",
                 "🌱 Yapılabilecek Üretim": f"{possible_viyol} Adet Viyol"
             })
+            seed_pdf_rows.append([p_name, brand_label, f"{tot_g:.0f}g", f"{u_g:.1f}g", f"{used_g:.0f}g", f"{rem_g:.0f}g", f"{possible_viyol} Viyol"])
+
+        with col_hdr_s2:
+            if seed_pdf_rows:
+                pdf_seed = generate_pdf_report(
+                    "Tohum Stok ve Üretim Kapasitesi Raporu",
+                    ["Ürün", "Marka", "Depo Stoğu", "1 Viyol (g)", "Harcanan", "Kalan Tohum", "Üretim Potansiyeli"],
+                    seed_pdf_rows
+                )
+                st.download_button(
+                    "🖨️ Tohum Raporu PDF",
+                    data=pdf_seed,
+                    file_name="Tohum_Stok_Kapasite_Raporu.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
         if seed_table_rows:
             df_seeds = pd.DataFrame(seed_table_rows)
@@ -494,7 +558,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
 
 st.markdown("---")
 
-# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma & Excel
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Excel & TAM SİSTEM YEDEĞİ İNDİR/YÜKLE
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -544,6 +608,43 @@ with st.sidebar:
             if active_parti_names:
                 st.session_state.active_parti = active_parti_names[0]
             st.rerun()
+
+    st.markdown("---")
+    st.header("💾 Tam Sistem Yedeği (Kayıpsız)")
+    
+    # Tüm verileri JSON olarak paketle
+    full_backup_data = {
+        "sheets": st.session_state.sheets,
+        "archived_partis": st.session_state.archived_partis,
+        "customers_list": st.session_state.customers_list,
+        "brand_seed_stocks": st.session_state.brand_seed_stocks
+    }
+    json_backup_str = json.dumps(full_backup_data, ensure_ascii=False, indent=2)
+    
+    st.download_button(
+        label="💾 Tam Yedeği İndir (JSON)",
+        data=json_backup_str,
+        file_name=f"Mikrofiliz_Tam_Sistem_Yedegi_{datetime.date.today().strftime('%d_%m_%Y')}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+
+    uploaded_json_backup = st.file_uploader("📤 Sistem Yedeği Yükle (.json)", type=["json"])
+    if uploaded_json_backup is not None:
+        if st.button("🔄 Yedeği Sisteme Yükle", use_container_width=True):
+            try:
+                backup_obj = json.load(uploaded_json_backup)
+                if "sheets" in backup_obj:
+                    st.session_state.sheets = backup_obj["sheets"]
+                    if "archived_partis" in backup_obj: st.session_state.archived_partis = backup_obj["archived_partis"]
+                    if "customers_list" in backup_obj: st.session_state.customers_list = backup_obj["customers_list"]
+                    if "brand_seed_stocks" in backup_obj: st.session_state.brand_seed_stocks = backup_obj["brand_seed_stocks"]
+                    
+                    save_data_to_sheets(st.session_state.sheets)
+                    st.success("Tüm sistem yedeği başarıyla geri yüklendi ve kaydedildi!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Yedek yükleme hatası: {e}")
 
     st.markdown("---")
     st.header("📥 Excel Olarak İndir")
@@ -624,6 +725,10 @@ if dun_islem or bugun_islem or yarin_islem:
 
 # 🛍️ SATIŞ YAP VE MÜŞTERİ KAYIT MODÜLÜ
 with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
+    col_hdr_sat1, col_hdr_sat2 = st.columns([3, 1])
+    with col_hdr_sat1:
+        st.markdown("#### 🛍️ Satış İşlemleri ve Kayıt")
+        
     col_s1, col_s2, col_s3 = st.columns([1, 1, 1.2])
     
     with col_s1:
@@ -686,11 +791,37 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
                     st.success(f"✅ Satış Başarılı! {final_customer} müşterisine {satilacak_adet} adet {s_urun} satıldı.")
                     st.rerun()
 
+        # Satış Raporu PDF Butonu
+        sales_pdf_rows = []
+        for p_k in active_parti_names:
+            for r in st.session_state.sheets[p_k][1:]:
+                if len(r)>5 and r[5].strip() and safe_int(r[2])>0:
+                    sales_pdf_rows.append([p_k, r[0], r[2], r[5], r[6], r[8]])
+
+        with col_hdr_sat2:
+            if sales_pdf_rows:
+                pdf_sales = generate_pdf_report(
+                    "Satış ve Müşteri Dağılım Raporu",
+                    ["Parti", "Ürün", "Satılan Adet", "Müşteri / Satış Noktası", "Ekim Tarihi", "Hasat Tarihi"],
+                    sales_pdf_rows
+                )
+                st.download_button(
+                    "🖨️ Satış Raporu PDF",
+                    data=pdf_sales,
+                    file_name="Satis_ve_Musteri_Raporu.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
 st.markdown("---")
 
 # 📊 DETAYLI VERİMLİLİK, SATIŞ VE FİRE (ÇÖP) RAPORLAMA MODÜLÜ (TARİH FİLTRELİ)
 with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu (Aktif Partiler)", expanded=False):
-    st.markdown("#### 📅 Tarih Aralığı Filtresi (Ekim Tarihine Göre)")
+    col_rep_hdr1, col_rep_hdr2 = st.columns([3, 1])
+    
+    with col_rep_hdr1:
+        st.markdown("#### 📅 Tarih Aralığı Filtresi (Ekim Tarihine Göre)")
+        
     col_dr1, col_dr2, col_dr3 = st.columns([1, 1, 1])
     
     with col_dr1:
@@ -703,6 +834,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
     report_list = []
     customer_sales = {}
     tot_global_u, tot_global_s, tot_global_f, tot_global_k = 0, 0, 0, 0
+    analysis_pdf_rows = []
 
     for p_name in active_parti_names:
         p_rows = st.session_state.sheets.get(p_name, [])
@@ -734,6 +866,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                         "Çöpe Atılan (Fire)": fire,
                         "Kalan": kalan
                     })
+                    analysis_pdf_rows.append([p_name, u_name, str(u_adet), str(s_cikan), str(fire), str(kalan), r[6], r[8]])
 
                 if musteri and s_cikan > 0:
                     for m_item in musteri.split(","):
@@ -745,6 +878,21 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
                                 customer_sales[m_name] = customer_sales.get(m_name, 0) + m_val
                         elif m_item and not m_item.isdigit():
                             customer_sales[m_item] = customer_sales.get(m_item, 0) + s_cikan
+
+    with col_rep_hdr2:
+        if analysis_pdf_rows:
+            pdf_analysis = generate_pdf_report(
+                "Üretim, Satış ve Fire Analiz Raporu",
+                ["Parti", "Ürün", "Üretim", "Satılan", "Fire", "Kalan", "Ekim", "Hasat"],
+                analysis_pdf_rows
+            )
+            st.download_button(
+                "🖨️ Analiz Raporu PDF",
+                data=pdf_analysis,
+                file_name="Uretim_Satis_Fire_Analiz_Raporu.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🌱 Seçilen Aralıkta Üretim", f"{tot_global_u} Adet")
@@ -773,7 +921,7 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
 
 st.markdown("---")
 
-# ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU
+# ÜRÜN BAZLI FİLTRELEME VE GÖRÜNTÜLEME MODU (PDF DESTEKLİ)
 selected_parti = st.session_state.active_parti
 rows = st.session_state.sheets.get(selected_parti, [])
 
@@ -789,9 +937,12 @@ if rows:
         )
 
     if selected_filter_product != "Tüm Tabloyu Göster (Aktif Parti)":
-        st.subheader(f"📊 '{selected_filter_product}' İçin Aktif Partilerin Üretim ve Satış Geçmişi")
+        col_prod_hdr1, col_prod_hdr2 = st.columns([3, 1])
+        with col_prod_hdr1:
+            st.subheader(f"📊 '{selected_filter_product}' İçin Aktif Partilerin Üretim ve Satış Geçmişi")
         
         product_history = []
+        product_pdf_rows = []
         tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
 
         for p_name in active_parti_names:
@@ -804,18 +955,14 @@ if rows:
                     kalan = safe_int(r[4])
                     musteri = r[5]
                     ekim_str = r[6]
-                    hasat_suresi = r[7]
                     hasat_str = r[8]
-                    karanlik_suresi = r[9]
-                    isik_str = r[10]
-                    not_str = r[11]
 
                     tot_u += u_adet
                     tot_s += s_cikan
                     tot_f += fire
                     tot_k += kalan
 
-                    isik_dt = parse_tr_date(isik_str)
+                    isik_dt = parse_tr_date(r[10])
                     hasat_dt = parse_tr_date(hasat_str)
 
                     durum_badge = "⚪ Ekilmedi"
@@ -836,8 +983,24 @@ if rows:
                         "Satış Yapılan Yer / Müşteri": musteri,
                         "Ekim Günü": ekim_str,
                         "Hasat Tarihi": hasat_str,
-                        "Not": not_str
+                        "Not": r[11]
                     })
+                    product_pdf_rows.append([p_name, durum_badge, str(u_adet), str(s_cikan), str(fire), str(kalan), musteri, ekim_str, hasat_str])
+
+        with col_prod_hdr2:
+            if product_pdf_rows:
+                pdf_prod = generate_pdf_report(
+                    f"{selected_filter_product} Ürün Takip Raporu",
+                    ["Parti", "Durum", "Üretim", "Satılan", "Fire", "Kalan", "Müşteri", "Ekim", "Hasat"],
+                    product_pdf_rows
+                )
+                st.download_button(
+                    "🖨️ Ürün Raporu PDF",
+                    data=pdf_prod,
+                    file_name=f"{selected_filter_product}_Raporu.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
         if product_history:
             product_history.append({
@@ -857,13 +1020,12 @@ if rows:
             st.info("Bu ürün için henüz kayıtlı bir üretim verisi bulunamadı.")
 
     else:
-        st.markdown(f"### 📋 {selected_parti} Üretim Tablosu")
-        st.markdown("""
-        **🎨 Durum Renk Anlamları:** 
-        ⚪ **Ekilmedi** | 🩶 **Karanlıkta** | 🟡 **Işığa Çıkmalı 💡** | 🟢 **Hasat Zamanı**
-        """)
-
+        col_main_hdr1, col_main_hdr2 = st.columns([3, 1])
+        with col_main_hdr1:
+            st.markdown(f"### 📋 {selected_parti} Üretim Tablosu")
+        
         table_data = []
+        parti_pdf_rows = []
         tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
 
         for r in prod_rows:
@@ -911,6 +1073,22 @@ if rows:
                 "Hasat Tarihi": hasat_str,
                 "Not": not_str
             })
+            parti_pdf_rows.append([durum_badge, u_name, str(u_adet), str(s_cikan), str(fire), str(kalan), musteri, ekim_str, hasat_str])
+
+        with col_main_hdr2:
+            if parti_pdf_rows:
+                pdf_parti = generate_pdf_report(
+                    f"{selected_parti} Üretim Tablosu",
+                    ["Durum", "Ürün", "Üretim", "Satılan", "Fire", "Kalan", "Müşteri", "Ekim", "Hasat"],
+                    parti_pdf_rows
+                )
+                st.download_button(
+                    "🖨️ Parti Tablosunu PDF Yap",
+                    data=pdf_parti,
+                    file_name=f"{selected_parti}_Tablosu.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
         table_data.append({
             "Durum": "📊 TOPLAM",
