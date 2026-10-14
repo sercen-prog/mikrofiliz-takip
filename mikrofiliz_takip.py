@@ -19,6 +19,32 @@ st.set_page_config(
     layout="wide"
 )
 
+# 🔒 ŞİFRE KORUMASI VE OTURUM KONTROLÜ
+APP_PASSWORD = "tarlam2026"
+
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        with col2:
+            st.markdown("### 🔒 Güvenli Giriş Paneli")
+            pwd_input = st.text_input("Sisteme erişmek için şifrenizi girin:", type="password", key="login_password_input")
+            if st.button("🔓 Giriş Yap", use_container_width=True):
+                if pwd_input == APP_PASSWORD:
+                    st.session_state.authenticated = True
+                    st.success("Giriş başarılı! Yönlendiriliyorsunuz...")
+                    st.rerun()
+                else:
+                    st.error("Hatalı şifre! Lütfen tekrar deneyin.")
+        return False
+    return True
+
+if not check_password():
+    st.stop()
+
 # Orijinal Excel Şablon Verileri
 ORIGINAL_PRODUCT_TEMPLATES = [
     ("Amaranth", "10", "3", 5),
@@ -91,7 +117,6 @@ def format_date_tr(dt_val):
     return str(dt_val)
 
 def fix_tr_chars_for_pdf(txt):
-    """PDF basilırken Türkçe karakterlerin kutucuk (□) olmasını engeller"""
     if not txt: return ""
     txt = str(txt)
     tr_map = {
@@ -202,7 +227,6 @@ def save_data_to_sheets(sheets_data):
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
 
-# KUTUCUK OLMASINI %100 ENGELLEYEN PDF OLUŞTURMA
 def generate_pdf_report(title_text, table_headers, table_rows_data):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -353,8 +377,6 @@ if not active_parti_names:
 
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
-
-st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -595,7 +617,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
 
 st.markdown("---")
 
-# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Excel & TAM SİSTEM YEDEĞİ İNDİR/YÜKLE
+# YAN MENÜ: Aktif Parti Seçimi, Arşive Kaldırma, Excel & Oturum Kapatma
 with st.sidebar:
     st.header("📂 Parti Yönetimi")
     
@@ -681,6 +703,12 @@ with st.sidebar:
                     st.rerun()
             except Exception as e:
                 st.error(f"Yedek yükleme hatası: {e}")
+
+    st.markdown("---")
+    st.header("🔒 Oturum Yönetimi")
+    if st.button("🔒 Oturumu Kapat", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
 
     st.markdown("---")
     st.header("📥 Excel Olarak İndir")
