@@ -204,7 +204,6 @@ def load_data_from_sheets():
     return get_clean_empty_sheet_data()
 
 def load_seeds_from_sheets():
-    """Tohum stoklarını Google Sheets'ten yükler"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -230,7 +229,6 @@ def load_seeds_from_sheets():
     except Exception as e:
         pass
         
-    # Varsayılan Tohum Listesi
     default_seeds = []
     for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
         default_seeds.append({
@@ -244,7 +242,6 @@ def load_seeds_from_sheets():
     return default_seeds
 
 def save_seeds_to_sheets(seeds_list):
-    """Tohum stoklarını Google Sheets'e kaydeder"""
     try:
         gc = get_gspread_client()
         sh = gc.open("Mikrofiliz_Verileri")
@@ -639,6 +636,15 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     save_seeds_to_sheets(st.session_state.brand_seed_stocks)
                     st.success(f"'{selected_existing_brand}' tohum kaydı silindi!")
                     st.rerun()
+
+        st.markdown("---")
+        # 🟢 YENİ EKLENEN HARCANAN TOHUMLARI 0 LAMA BUTONU
+        if st.button("🔄 Harcanan Tohum Gramajlarını Sıfırla (0 Yap)", use_container_width=True):
+            for s in st.session_state.brand_seed_stocks:
+                s["manual_used_gram"] = 0.0
+            save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+            st.success("Tüm tohum stoklarındaki harcanan gramajlar sıfırlandı!")
+            st.rerun()
 
     with col_st2:
         col_hdr_s1, col_hdr_s2 = st.columns([2.5, 1.5])
