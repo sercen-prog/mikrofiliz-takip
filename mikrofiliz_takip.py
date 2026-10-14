@@ -7,23 +7,11 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 
-# Reportlab PDF Kütüphaneleri ve Türkçe Font Desteği
+# Reportlab PDF Kütüphaneleri
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-
-# Türkçe Karakter Desteği İçin Font Tanımlama
-try:
-    pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
-    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', 'DejaVuSans-Bold.ttf'))
-    PDF_FONT_NAME = 'DejaVuSans'
-    PDF_FONT_BOLD = 'DejaVuSans-Bold'
-except:
-    PDF_FONT_NAME = 'Helvetica'
-    PDF_FONT_BOLD = 'Helvetica-Bold'
 
 st.set_page_config(
     page_title="🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip",
@@ -101,6 +89,19 @@ def format_date_tr(dt_val):
     if parsed:
         return parsed.strftime("%d.%m.%Y")
     return str(dt_val)
+
+def fix_tr_chars_for_pdf(txt):
+    """PDF basilırken Türkçe karakterlerin kutucuk (□) olmasını engeller"""
+    if not txt: return ""
+    txt = str(txt)
+    tr_map = {
+        'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I',
+        'ö': 'o', 'Ö': 'O', 'ü': 'u', 'Ü': 'U',
+        'ş': 's', 'Ş': 'S', 'ç': 'c', 'Ç': 'C'
+    }
+    for k, v in tr_map.items():
+        txt = txt.replace(k, v)
+    return txt
 
 def get_clean_empty_sheet_data():
     rows = [HEADERS]
@@ -201,7 +202,7 @@ def save_data_to_sheets(sheets_data):
     except Exception as e:
         st.error(f"Google Sheets Kayıt Hatası: {e}")
 
-# TÜRKÇE FONT DESTEKLİ PDF OLUŞTURMA FONKSİYONU
+# KUTUCUK OLMASINI %100 ENGELLEYEN PDF OLUŞTURMA
 def generate_pdf_report(title_text, table_headers, table_rows_data):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -218,7 +219,7 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
     
     title_style = ParagraphStyle(
         'ReportTitle',
-        fontName=PDF_FONT_BOLD,
+        fontName='Helvetica-Bold',
         fontSize=16,
         leading=20,
         textColor=colors.HexColor("#1b5e20"),
@@ -228,7 +229,7 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
     
     header_cell_style = ParagraphStyle(
         'HeaderCellStyle',
-        fontName=PDF_FONT_BOLD,
+        fontName='Helvetica-Bold',
         fontSize=9,
         leading=11,
         textColor=colors.HexColor("#1b5e20"),
@@ -237,19 +238,20 @@ def generate_pdf_report(title_text, table_headers, table_rows_data):
     
     body_cell_style = ParagraphStyle(
         'BodyCellStyle',
-        fontName=PDF_FONT_NAME,
+        fontName='Helvetica',
         fontSize=8,
         leading=10,
         alignment=1
     )
     
-    story.append(Paragraph(f"Mikrofiliz Takip - {title_text}", title_style))
+    clean_title = fix_tr_chars_for_pdf(f"Mikrofiliz Takip - {title_text}")
+    story.append(Paragraph(clean_title, title_style))
     story.append(Spacer(1, 10))
     
-    pdf_table_data = [[Paragraph(h, header_cell_style) for h in table_headers]]
+    pdf_table_data = [[Paragraph(fix_tr_chars_for_pdf(h), header_cell_style) for h in table_headers]]
     
     for row in table_rows_data:
-        pdf_row = [Paragraph(str(cell), body_cell_style) for cell in row]
+        pdf_row = [Paragraph(fix_tr_chars_for_pdf(cell), body_cell_style) for cell in row]
         pdf_table_data.append(pdf_row)
         
     t = Table(pdf_table_data, repeatRows=1)
@@ -575,8 +577,8 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
         with col_hdr_s2:
             if seed_pdf_rows:
                 pdf_seed = generate_pdf_report(
-                    "Tohum Stok ve Üretim Kapasitesi Raporu",
-                    ["Ürün", "Marka", "Depo Stoğu", "1 Viyol (g)", "Harcanan", "Kalan Tohum", "Üretim Potansiyeli"],
+                    "Tohum Stok ve Uretim Kapasitesi Raporu",
+                    ["Urun", "Marka", "Depo Stogu", "1 Viyol (g)", "Harcanan", "Kalan Tohum", "Uretim Potansiyeli"],
                     seed_pdf_rows
                 )
                 st.download_button(
@@ -834,8 +836,8 @@ with st.expander("🛍️ Satış Yap ve Müşteri Yönetimi", expanded=True):
         with col_hdr_sat2:
             if sales_pdf_rows:
                 pdf_sales = generate_pdf_report(
-                    "Satış ve Müşteri Dağılım Raporu",
-                    ["Parti", "Ürün", "Satılan Adet", "Müşteri / Satış Noktası", "Ekim Tarihi", "Hasat Tarihi"],
+                    "Satis ve Musteri Dagilim Raporu",
+                    ["Parti", "Urun", "Satilan Adet", "Musteri / Satis Noktasi", "Ekim Tarihi", "Hasat Tarihi"],
                     sales_pdf_rows
                 )
                 st.download_button(
@@ -915,8 +917,8 @@ with st.expander("📊 Üretim, Satış, Çöp (Fire) ve Müşteri Analiz Raporu
     with col_rep_hdr2:
         if analysis_pdf_rows:
             pdf_analysis = generate_pdf_report(
-                "Üretim, Satış ve Fire Analiz Raporu",
-                ["Parti", "Ürün", "Üretim", "Satılan", "Fire", "Kalan", "Ekim", "Hasat"],
+                "Uretim, Satis ve Fire Analiz Raporu",
+                ["Parti", "Urun", "Uretim", "Satilan", "Fire", "Kalan", "Ekim", "Hasat"],
                 analysis_pdf_rows
             )
             st.download_button(
@@ -1023,8 +1025,8 @@ if rows:
         with col_prod_hdr2:
             if product_pdf_rows:
                 pdf_prod = generate_pdf_report(
-                    f"{selected_filter_product} Ürün Takip Raporu",
-                    ["Parti", "Durum", "Üretim", "Satılan", "Fire", "Kalan", "Müşteri", "Ekim", "Hasat"],
+                    f"{selected_filter_product} Urun Takip Raporu",
+                    ["Parti", "Durum", "Uretim", "Satilan", "Fire", "Kalan", "Musteri", "Ekim", "Hasat"],
                     product_pdf_rows
                 )
                 st.download_button(
@@ -1111,8 +1113,8 @@ if rows:
         with col_main_hdr2:
             if parti_pdf_rows:
                 pdf_parti = generate_pdf_report(
-                    f"{selected_parti} Üretim Tablosu",
-                    ["Durum", "Ürün", "Üretim", "Satılan", "Fire", "Kalan", "Müşteri", "Ekim", "Hasat"],
+                    f"{selected_parti} Uretim Tablosu",
+                    ["Durum", "Urun", "Uretim", "Satilan", "Fire", "Kalan", "Musteri", "Ekim", "Hasat"],
                     parti_pdf_rows
                 )
                 st.download_button(
