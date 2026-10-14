@@ -167,7 +167,7 @@ def load_data_from_sheets():
         template_dict = {p[0]: (p[1], p[2]) for p in ORIGINAL_PRODUCT_TEMPLATES}
 
         for ws in sh.worksheets():
-            if ws.title == "Tohum_Stoklari":
+            if ws.title in ["Tohum_Stoklari", "Musteri_Listesi"]:
                 continue
             rows = ws.get_all_values()
             if len(rows) > 1:
@@ -262,6 +262,43 @@ def save_seeds_to_sheets(seeds_list):
     except Exception as e:
         st.error(f"Tohum Kayıt Hatası: {e}")
 
+def load_customers_from_sheets():
+    """Müşterileri Google Sheets'ten yükler"""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open("Mikrofiliz_Verileri")
+        try:
+            ws = sh.worksheet("Musteri_Listesi")
+            rows = ws.get_all_values()
+            if len(rows) > 1:
+                custs = [str(r[0]).strip() for r in rows[1:] if len(r)>0 and str(r[0]).strip()]
+                if custs:
+                    return list(set(DEFAULT_CUSTOMERS + custs))
+        except:
+            pass
+    except Exception as e:
+        pass
+    return list(DEFAULT_CUSTOMERS)
+
+def save_customers_to_sheets(cust_list):
+    """Müşterileri Google Sheets'e kaydeder"""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open("Mikrofiliz_Verileri")
+        try:
+            ws = sh.worksheet("Musteri_Listesi")
+            ws.clear()
+        except:
+            ws = sh.add_worksheet(title="Musteri_Listesi", rows="100", cols="5")
+            
+        full_rows = [["Müşteri / Restoran Adı"]]
+        for c in cust_list:
+            if c.strip():
+                full_rows.append([c.strip()])
+        ws.update("A1", full_rows)
+    except Exception as e:
+        st.error(f"Müşteri Kayıt Hatası: {e}")
+
 def save_data_to_sheets(sheets_data):
     try:
         gc = get_gspread_client()
@@ -270,7 +307,7 @@ def save_data_to_sheets(sheets_data):
         existing_worksheets = {ws.title: ws for ws in sh.worksheets()}
         
         for s_name, rows in sheets_data.items():
-            if s_name == "Tohum_Stoklari": continue
+            if s_name in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
             if s_name in existing_worksheets:
                 ws = existing_worksheets[s_name]
                 ws.clear()
@@ -290,7 +327,7 @@ def save_data_to_sheets(sheets_data):
             ws.update("A1", full_rows)
             
         for old_title, ws in existing_worksheets.items():
-            if old_title != "Tohum_Stoklari" and old_title not in sheets_data and len(sh.worksheets()) > 1:
+            if old_title not in ["Tohum_Stoklari", "Musteri_Listesi"] and old_title not in sheets_data and len(sh.worksheets()) > 1:
                 sh.del_worksheet(ws)
 
         st.toast("✅ Veriler Google Sheets'e kaydedildi!", icon="💾")
@@ -368,7 +405,7 @@ def export_sheets_to_excel(sheets_data):
     wb.remove(wb.active)
     
     for s_name, rows in sheets_data.items():
-        if s_name == "Tohum_Stoklari": continue
+        if s_name in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
         ws = wb.create_sheet(title=s_name)
         data_rows = rows[1:]
         tot_u, tot_s, tot_f, tot_k = 0, 0, 0, 0
@@ -419,7 +456,7 @@ if "archived_partis" not in st.session_state:
     st.session_state.archived_partis = []
 
 if "customers_list" not in st.session_state:
-    st.session_state.customers_list = list(DEFAULT_CUSTOMERS)
+    st.session_state.customers_list = load_customers_from_sheets()
 
 if "brand_seed_stocks" not in st.session_state:
     st.session_state.brand_seed_stocks = load_seeds_from_sheets()
@@ -427,7 +464,7 @@ if "brand_seed_stocks" not in st.session_state:
 if "seed_use_production_deduction" not in st.session_state:
     st.session_state.seed_use_production_deduction = True
 
-all_parti_names = [k for k in st.session_state.sheets.keys() if k != "Tohum_Stoklari"]
+all_parti_names = [k for k in st.session_state.sheets.keys() if k not in ["Tohum_Stoklari", "Musteri_Listesi"]]
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
 if not active_parti_names:
@@ -466,7 +503,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
                 if new_p_name.strip() and new_p_name.strip() not in current_prods:
                     p_name_clean = new_p_name.strip()
                     for p_key in st.session_state.sheets.keys():
-                        if p_key == "Tohum_Stoklari": continue
+                        if p_key in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
                         st.session_state.sheets[p_key].append([
                             p_name_clean, "0", "0", "0", "0", "", "", str(new_p_hasat), "", str(new_p_kar), "", ""
                         ])
@@ -499,7 +536,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             with c_btn1:
                 if st.button("💾 Süreleri Güncelle", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
-                        if p_key == "Tohum_Stoklari": continue
+                        if p_key in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
                         for r in st.session_state.sheets[p_key][1:]:
                             if len(r)>0 and r[0] == edit_p_select:
                                 r[7] = str(up_hasat)
@@ -510,7 +547,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             with c_btn2:
                 if st.button("🗑️ Ürünü Sil", use_container_width=True):
                     for p_key in st.session_state.sheets.keys():
-                        if p_key == "Tohum_Stoklari": continue
+                        if p_key in ["Tohum_Stoklari", "Musteri_Listesi"]: continue
                         st.session_state.sheets[p_key] = [r for r in st.session_state.sheets[p_key] if len(r)==0 or r[0] != edit_p_select]
                     st.session_state.brand_seed_stocks = [s for s in st.session_state.brand_seed_stocks if s["product"] != edit_p_select]
                     save_data_to_sheets(st.session_state.sheets)
@@ -527,7 +564,8 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             if st.button("➕ Müşteriyi Listeye Ekle", use_container_width=True):
                 if add_c_name.strip() and add_c_name.strip() not in st.session_state.customers_list:
                     st.session_state.customers_list.append(add_c_name.strip())
-                    st.success(f"'{add_c_name.strip()}' müşteri listesine eklendi!")
+                    save_customers_to_sheets(st.session_state.customers_list)
+                    st.success(f"'{add_c_name.strip()}' müşteri listesine eklendi ve Google Sheets'e kaydedildi!")
                     st.rerun()
                     
         with col_c2:
@@ -535,6 +573,7 @@ with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti S
             del_c_select = st.selectbox("Silinecek Müşteri", st.session_state.customers_list, key="tab_del_cust_select")
             if st.button("🗑️ Müşteriyi Sil", use_container_width=True):
                 st.session_state.customers_list.remove(del_c_select)
+                save_customers_to_sheets(st.session_state.customers_list)
                 st.success(f"'{del_c_select}' müşteri listesinden çıkarıldı!")
                 st.rerun()
 
@@ -643,7 +682,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     st.rerun()
 
         st.markdown("---")
-        # 🟢 HARCANAN TOHUMLARI TAM SIFIRLAMA BUTONU
         st.session_state.seed_use_production_deduction = st.checkbox(
             "🌱 Partilerdeki Üretim Adetlerini Tohum Harcamasına Dahil Et", 
             value=st.session_state.seed_use_production_deduction, 
@@ -754,7 +792,7 @@ with st.sidebar:
         if len(active_parti_names) > 1:
             if st.button("🗑️ Partiyi Sil"):
                 del st.session_state.sheets[st.session_state.active_parti]
-                active_parti_names = [p for p in list(st.session_state.sheets.keys()) if p not in st.session_state.archived_partis and p != "Tohum_Stoklari"]
+                active_parti_names = [p for p in list(st.session_state.sheets.keys()) if p not in st.session_state.archived_partis and p not in ["Tohum_Stoklari", "Musteri_Listesi"]]
                 st.session_state.active_parti = active_parti_names[0]
                 save_data_to_sheets(st.session_state.sheets)
                 st.rerun()
@@ -802,6 +840,7 @@ with st.sidebar:
                     
                     save_data_to_sheets(st.session_state.sheets)
                     save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+                    save_customers_to_sheets(st.session_state.customers_list)
                     st.success("Tüm sistem yedeği başarıyla geri yüklendi ve kaydedildi!")
                     st.rerun()
             except Exception as e:
@@ -1303,7 +1342,11 @@ if rows:
     if idx is not None:
         curr_r = target_sheet_rows[idx]
 
-        c1, c2, c3 = st.columns(3)
+        # O ürüne ait Tohum Markaları
+        prod_seed_brands = [s["brand"] for s in st.session_state.brand_seed_stocks if s["product"] == selected_urun]
+        if not prod_seed_brands: prod_seed_brands = ["Varsayılan Marka"]
+
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
         with c1:
             e_ekim = st.date_input(
                 "Ekim Tarihi (Gün/Ay/Yıl)", 
@@ -1318,25 +1361,32 @@ if rows:
                 key=f"input_u_adet_{target_parti}_{selected_urun}"
             )
         with c2:
+            selected_seed_brand_quick = st.selectbox(
+                "🏷️ Kullanılacak Tohum Markası",
+                prod_seed_brands,
+                key=f"input_seed_brand_{target_parti}_{selected_urun}"
+            )
             e_fire = st.number_input(
                 "Çöpe Atılan (Fire)", 
                 min_value=0, 
                 value=safe_int(curr_r[3]),
                 key=f"input_fire_{target_parti}_{selected_urun}"
             )
+        with c3:
             e_kar = st.number_input(
                 "Karanlıkta (gün)", 
                 min_value=1, 
                 value=safe_int(curr_r[9]) if curr_r[9] != "" else 3,
                 key=f"input_kar_{target_parti}_{selected_urun}"
             )
-        with c3:
             e_has = st.number_input(
                 "Hasat Süresi (gün)", 
                 min_value=1, 
                 value=safe_int(curr_r[7]) if curr_r[7] != "" else 10,
                 key=f"input_has_{target_parti}_{selected_urun}"
             )
+        with c4:
+            st.markdown("<br>", unsafe_allow_html=True)
             e_not = st.text_input(
                 "Not / Açıklama", 
                 value=curr_r[11],
@@ -1349,6 +1399,14 @@ if rows:
             kalan = max(0, e_u_adet - e_s_cikan - e_fire)
             isik_dt = e_ekim + datetime.timedelta(days=int(e_kar))
             hasat_dt = e_ekim + datetime.timedelta(days=int(e_has))
+
+            # Seçilen markayı aktif yap
+            for s in st.session_state.brand_seed_stocks:
+                if s["product"] == selected_urun:
+                    if s["brand"] == selected_seed_brand_quick:
+                        s["is_active"] = True
+                    else:
+                        s["is_active"] = False
 
             updated = [
                 selected_urun,
@@ -1366,7 +1424,8 @@ if rows:
             ]
             st.session_state.sheets[target_parti][idx + 1] = updated
             save_data_to_sheets(st.session_state.sheets)
-            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Çöpe Atılan: {e_fire} | Kalan Ürün: {kalan}")
+            save_seeds_to_sheets(st.session_state.brand_seed_stocks)
+            st.success(f"'{selected_urun}' ({target_parti}) güncellendi! Seçilen Tohum: {selected_seed_brand_quick} | Kalan Ürün: {kalan}")
             st.rerun()
     else:
         st.warning(f"'{selected_urun}' adlı ürün {target_parti} içerisinde henüz tanımlı değil.")
