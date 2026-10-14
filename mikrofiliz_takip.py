@@ -242,7 +242,6 @@ if "customers_list" not in st.session_state:
 
 # MARKALI TOHUM STOK YAPISI
 if "brand_seed_stocks" not in st.session_state:
-    # [{"product": "Beyaz Turp", "brand": "A Marka", "stock_gram": 1000.0, "per_unit_gram": 30.0, "is_active": True}, ...]
     st.session_state.brand_seed_stocks = []
     for name, _, _, gram_unit in ORIGINAL_PRODUCT_TEMPLATES:
         st.session_state.brand_seed_stocks.append({
@@ -386,7 +385,6 @@ st.markdown("---")
 
 # 🛒 MARKALI TOHUM STOK VE ÜRETİM KAPASİTESİ TAKİP MODÜLÜ
 with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Takibi", expanded=True):
-    # Ürün bazlı ekilen toplam adetleri hesapla
     total_production_by_product = {}
     for p_name in active_parti_names:
         for r in st.session_state.sheets.get(p_name, [])[1:]:
@@ -400,38 +398,23 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
     col_st1, col_st2 = st.columns([1.2, 2])
 
     with col_st1:
-        st.markdown("#### 🏷️ Yeni Markalı Tohum Ekle / Güncelle")
+        st.markdown("#### 🏷️ Markalı Tohum Ekle / Düzenle / Sil")
         target_prod_for_seed = st.selectbox("İlgili Ürün", all_current_prods, key="seed_target_prod_select")
         
-        # O ürüne ait mevcut markalar
+        # O ürüne ait mevcut markalı tohumlar
         existing_brands_for_prod = [s for s in st.session_state.brand_seed_stocks if s["product"] == target_prod_for_seed]
+        brand_names_list = [s["brand"] for s in existing_brands_for_prod] if existing_brands_for_prod else ["Varsayılan Marka"]
         
-        c_b1, c_b2 = st.columns(2)
-        with c_b1:
-            seed_brand_name = st.text_input("Marka / Paket Adı", value="A Marka", key="seed_brand_name_input")
-        with c_b2:
-            seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=1000.0, step=100.0, key="seed_stock_gram_input")
+        selected_existing_brand = st.selectbox("Mevcut Marka/Paket Seç (Düzenleme veya Silme İçin)", ["➕ Yeni Marka Ekle..."] + brand_names_list, key="seed_brand_select_exist")
 
-        seed_unit_gram = st.number_input("1 Viyol/Kap İçin Harcanan (Gram)", min_value=0.1, value=20.0, step=1.0, key="seed_unit_gram_input")
-        set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=True, key="seed_set_active_check")
+        if selected_existing_brand == "➕ Yeni Marka Ekle...":
+            seed_brand_name = st.text_input("Marka / Paket Adı", value="A Marka", key="seed_brand_name_input_new")
+            seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=1000.0, step=100.0, key="seed_stock_gram_input_new")
+            seed_unit_gram = st.number_input("1 Viyol İçin Harcanan (Gram)", min_value=0.1, value=20.0, step=1.0, key="seed_unit_gram_input_new")
+            set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=True, key="seed_set_active_check_new")
 
-        if st.button("💾 Markalı Tohumu Kaydet", use_container_width=True):
-            if seed_brand_name.strip():
-                # Eğer aynı markadan varsa güncelle
-                found = False
-                for s in st.session_state.brand_seed_stocks:
-                    if s["product"] == target_prod_for_seed and s["brand"] == seed_brand_name.strip():
-                        s["stock_gram"] = seed_stock_gram
-                        s["per_unit_gram"] = seed_unit_gram
-                        if set_as_active:
-                            for other in st.session_state.brand_seed_stocks:
-                                if other["product"] == target_prod_for_seed:
-                                    other["is_active"] = False
-                            s["is_active"] = True
-                        found = True
-                        break
-                
-                if not found:
+            if st.button("💾 Yeni Markalı Tohumu Kaydet", use_container_width=True):
+                if seed_brand_name.strip():
                     if set_as_active:
                         for other in st.session_state.brand_seed_stocks:
                             if other["product"] == target_prod_for_seed:
@@ -443,8 +426,38 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                         "per_unit_gram": seed_unit_gram,
                         "is_active": set_as_active
                     })
-                st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu kaydedildi!")
-                st.rerun()
+                    st.success(f"'{target_prod_for_seed}' için {seed_brand_name.strip()} tohumu eklendi!")
+                    st.rerun()
+        else:
+            # Var olan markayı düzenle veya sil
+            curr_brand_obj = next((s for s in existing_brands_for_prod if s["brand"] == selected_existing_brand), None)
+            cur_stk = curr_brand_obj["stock_gram"] if curr_brand_obj else 1000.0
+            cur_unit = curr_brand_obj["per_unit_gram"] if curr_brand_obj else 20.0
+            cur_act = curr_brand_obj["is_active"] if curr_brand_obj else True
+
+            seed_stock_gram = st.number_input("Depo Stoğu (Gram)", min_value=0.0, value=cur_stk, step=100.0, key="seed_stock_gram_input_edit")
+            seed_unit_gram = st.number_input("1 Viyol İçin Harcanan (Gram)", min_value=0.1, value=cur_unit, step=1.0, key="seed_unit_gram_input_edit")
+            set_as_active = st.checkbox("Üretimde Varsayılan Tohum Olarak Kullan", value=cur_act, key="seed_set_active_check_edit")
+
+            c_sd1, c_sd2 = st.columns(2)
+            with c_sd1:
+                if st.button("💾 Güncelle", use_container_width=True):
+                    curr_brand_obj["stock_gram"] = seed_stock_gram
+                    curr_brand_obj["per_unit_gram"] = seed_unit_gram
+                    if set_as_active:
+                        for other in st.session_state.brand_seed_stocks:
+                            if other["product"] == target_prod_for_seed:
+                                other["is_active"] = False
+                        curr_brand_obj["is_active"] = True
+                    else:
+                        curr_brand_obj["is_active"] = False
+                    st.success(f"'{selected_existing_brand}' tohumu güncellendi!")
+                    st.rerun()
+            with c_sd2:
+                if st.button("🗑️ Tohumu Sil", use_container_width=True):
+                    st.session_state.brand_seed_stocks = [s for s in st.session_state.brand_seed_stocks if not (s["product"] == target_prod_for_seed and s["brand"] == selected_existing_brand)]
+                    st.success(f"'{selected_existing_brand}' tohum kaydı silindi!")
+                    st.rerun()
 
     with col_st2:
         st.markdown("#### 📋 Depodaki Tohum Stokları ve Üretim Potansiyeli")
@@ -457,7 +470,6 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
             u_g = item["per_unit_gram"]
             is_act = item["is_active"]
 
-            # Eğer aktif kullanılansa üretim adetini düş
             used_g = 0.0
             if is_act:
                 p_cnt = total_production_by_product.get(p_name, 0)
