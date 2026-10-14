@@ -424,6 +424,9 @@ if "customers_list" not in st.session_state:
 if "brand_seed_stocks" not in st.session_state:
     st.session_state.brand_seed_stocks = load_seeds_from_sheets()
 
+if "seed_use_production_deduction" not in st.session_state:
+    st.session_state.seed_use_production_deduction = True
+
 all_parti_names = [k for k in st.session_state.sheets.keys() if k != "Tohum_Stoklari"]
 active_parti_names = [p for p in all_parti_names if p not in st.session_state.archived_partis]
 
@@ -440,6 +443,8 @@ if not active_parti_names:
 
 if "active_parti" not in st.session_state or st.session_state.active_parti not in active_parti_names:
     st.session_state.active_parti = active_parti_names[0]
+
+st.title("🌱 Mikrofiliz Üretim, Satış, Fire ve Tohum Takip Sistemi")
 
 # ⚙️ UYGULAMA İÇİ SİSTEM VE YÖNETİM PANELİ (EXPANDER)
 with st.expander("⚙️ Sistem Yönetimi (Ürün / Müşteri / Arşiv / Parti Sıfırlama)", expanded=False):
@@ -638,12 +643,18 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                     st.rerun()
 
         st.markdown("---")
-        # 🟢 YENİ EKLENEN HARCANAN TOHUMLARI 0 LAMA BUTONU
-        if st.button("🔄 Harcanan Tohum Gramajlarını Sıfırla (0 Yap)", use_container_width=True):
+        # 🟢 HARCANAN TOHUMLARI TAM SIFIRLAMA BUTONU
+        st.session_state.seed_use_production_deduction = st.checkbox(
+            "🌱 Partilerdeki Üretim Adetlerini Tohum Harcamasına Dahil Et", 
+            value=st.session_state.seed_use_production_deduction, 
+            key="seed_prod_deduction_check"
+        )
+        if st.button("🔄 Harcanan Tohum Gramajlarını Tamamen Sıfırla (0 Yap)", use_container_width=True):
             for s in st.session_state.brand_seed_stocks:
                 s["manual_used_gram"] = 0.0
+            st.session_state.seed_use_production_deduction = False
             save_seeds_to_sheets(st.session_state.brand_seed_stocks)
-            st.success("Tüm tohum stoklarındaki harcanan gramajlar sıfırlandı!")
+            st.success("Tüm tohum harcamaları başarıyla 0 yapıldı!")
             st.rerun()
 
     with col_st2:
@@ -668,7 +679,7 @@ with st.expander("🛒 Markalı Tohum Stok Miktarları ve Üretim Kapasitesi Tak
                 continue
 
             used_g = man_g
-            if is_act:
+            if is_act and st.session_state.seed_use_production_deduction:
                 p_cnt = total_production_by_product.get(p_name, 0)
                 used_g += (p_cnt * u_g)
 
